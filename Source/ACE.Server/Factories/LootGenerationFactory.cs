@@ -207,24 +207,25 @@ namespace ACE.Server.Factories
             // Clothing 14%
             // Jewelry 18%
 
+            // changed each case to use BREAK instead of RETURN - Shoff 4/29/2020
             switch (type)
             {
                 case var rate when (rate < 15):
                     // jewels (Gems)
                     wo = CreateJewels(profile.Tier, isMagical);
-                    return wo;
+                    break;
                 case var rate when (rate > 14 && rate < 39):
                     //armor
                     wo = CreateArmor(profile, isMagical, true, lootBias);
-                    return wo;
+                    break;
                 case var rate when (rate > 38 && rate < 53):
                     // clothing (shirts/pants)
                     wo = CreateArmor(profile, isMagical, false, lootBias);
-                    return wo;
+                    break;
                 case var rate when (rate > 52 && rate < 83):
                     // weapons (Melee/Missile/Casters)
                     wo = CreateWeapon(profile, isMagical);
-                    return wo;
+                    break;
                 case var rate when (rate > 83 && rate < 93):
                     // jewelry
                     wo = CreateJewelry(profile, isMagical);

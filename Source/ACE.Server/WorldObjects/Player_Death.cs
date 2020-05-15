@@ -452,12 +452,14 @@ namespace ACE.Server.WorldObjects
             // if player dies on a No Drop landblock,
             // they don't drop any items
 
-            if (corpse.IsOnNoDropLandblock || IsPKLiteDeath(corpse.KillerId))
+            if (corpse.IsOnNoDropLandblock)
                 return new List<WorldObject>();
 
-            var numItemsDropped = GetNumItemsDropped(corpse);
+            bool isPklDeath = IsPKLiteDeath(corpse.KillerId);
 
-            var numCoinsDropped = GetNumCoinsDropped();
+            var numItemsDropped = isPklDeath ? 0 : GetNumItemsDropped(corpse);
+
+            var numCoinsDropped = isPklDeath ? 0 : GetNumCoinsDropped();
 
             var level = Level ?? 1;
             var canDropWielded = level >= 35;
@@ -534,11 +536,23 @@ namespace ACE.Server.WorldObjects
             // handle items with BondedStatus.Slippery: always drop on death
             var slipperyItems = GetSlipperyItems();
 
-            foreach (var item in slipperyItems)
+            if (isPklDeath)
             {
-                if (TryRemoveFromInventoryWithNetworking(item.Guid, out _, RemoveFromInventoryAction.ToCorpseOnDeath) || TryDequipObjectWithNetworking(item.Guid, out _, DequipObjectAction.ToCorpseOnDeath))
-                    dropItems.Add(item);
+                foreach (var item in slipperyItems.Where(x => x.WeenieClassId == 21747000 /* Daily Dungeon Coin */))
+                {
+                    if (TryRemoveFromInventoryWithNetworking(item.Guid, out _, RemoveFromInventoryAction.ToCorpseOnDeath) || TryDequipObjectWithNetworking(item.Guid, out _, DequipObjectAction.ToCorpseOnDeath))
+                        dropItems.Add(item);
+                }
             }
+            else
+            {
+                foreach (var item in slipperyItems)
+                {
+                    if (TryRemoveFromInventoryWithNetworking(item.Guid, out _, RemoveFromInventoryAction.ToCorpseOnDeath) || TryDequipObjectWithNetworking(item.Guid, out _, DequipObjectAction.ToCorpseOnDeath))
+                        dropItems.Add(item);
+                }
+            }
+            
 
             var destroyCoins = PropertyManager.GetBool("corpse_destroy_pyreals").Item;
 

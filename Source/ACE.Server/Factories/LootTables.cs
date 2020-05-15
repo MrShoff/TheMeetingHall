@@ -426,7 +426,8 @@ namespace ACE.Server.Factories
         };
 
         // Level 8 spell components
-        public static readonly int[] Level8SpellComps = { 37363, 37365, 37362, 37364, 37360, 37361, 37353, 37354, 37355, 37357, 37358, 37356, 37359, 37343, 37344, 37345, 37346, 37347, 37349, 37350,
+        public static readonly int[] Level8SpellComps = {
+                         37363, 37365, 37362, 37364, 37360, 37361, 37353, 37354, 37355, 37357, 37358, 37356, 37359, 37343, 37344, 37345, 37346, 37347, 37349, 37350,
                          37342, 37351, 43379, 37352, 45370, 45371, 37300, 37373, 37301, 37302, 37303, 37348, 37304, 37305, 37369, 37309, 37310, 37311, 37312, 37313, 37339,
                          37314, 37315, 37316, 37317, 38760, 37318, 37319, 37321, 37323, 37324, 37338, 37325, 43387, 37326, 37327, 37328, 45372, 37307, 37329, 37330, 37331,
                          45373, 37332, 45374, 37333, 37336, 37337, 49455, 41747, 43380, 37340, 37341 };
@@ -1946,6 +1947,7 @@ namespace ACE.Server.Factories
             550,    // Baigha
             8488,   // Armet
             8489,   // Heaume
+            8396,   // PP Heaume
             31865   // Circlet
         };
 
@@ -1990,6 +1992,7 @@ namespace ACE.Server.Factories
             59,     // Studded Leather Gauntlets
             63,     // Studded Leather Girth
             68,     // Studded Leather Greaves
+            84,     // Studded Leather Leggings
             89,     // Studded Leather Pauldrons
             99,     // Studded Leather Shirt
             105,    // Studded Leather Sleeves

@@ -164,6 +164,8 @@ namespace ACE.Server.WorldObjects
                 return false;
             }
             var success = pet.Init(player, this);
+            if (success)
+                player.EnchantmentManager.StartCooldown(this);
 
             return success;
         }

@@ -2,6 +2,7 @@ using System;
 using System.IO;
 using System.Numerics;
 using ACE.Entity.Enum;
+using ACE.Entity.Models;
 
 namespace ACE.Entity
 {
@@ -215,6 +216,17 @@ namespace ACE.Entity
             LandblockId = new LandblockId(pos.LandblockId.Raw);
             Pos = pos.Pos;
             Rotation = pos.Rotation;
+        }
+
+        public Position(PropertiesPosition pos)
+        {
+            LandblockId = new LandblockId(pos.ObjCellId);
+
+            Pos = new Vector3(pos.PositionX, pos.PositionY, pos.PositionZ);
+            Rotation = new Quaternion(pos.RotationX, pos.RotationY, pos.RotationZ, pos.RotationW);
+
+            if ((pos.ObjCellId & 0xFFFF) == 0)
+                SetPosition(Pos);
         }
 
         public Position(uint blockCellID, float newPositionX, float newPositionY, float newPositionZ, float newRotationX, float newRotationY, float newRotationZ, float newRotationW)

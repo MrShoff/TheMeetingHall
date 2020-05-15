@@ -70,7 +70,7 @@ namespace ACE.Server.WorldObjects
 
             if (PortalShowDestination ?? true)
             {
-                AppraisalPortalDestination = Name;
+                AppraisalPortalDestination = AppraisalPortalDestination ?? Name;
 
                 if (Destination != null)
                 {
@@ -171,6 +171,12 @@ namespace ACE.Server.WorldObjects
                 if (PortalRestrictions.HasFlag(PortalBitmask.NoNPK) && playerPkLevel == PKLevel.NPK)
                 {
                     // Non-player killers may not interact with that portal!
+                    return new ActivationResult(new GameEventWeenieError(player.Session, WeenieError.NonPKsMayNotUsePortal));
+                }
+
+                if (PortalRestrictions.HasFlag(PortalBitmask.OnlyPKorPKL) && player.PlayerKillerStatus == PlayerKillerStatus.NPK)
+                {
+                    // You must be PK or PKL to interact with that portal!
                     return new ActivationResult(new GameEventWeenieError(player.Session, WeenieError.NonPKsMayNotUsePortal));
                 }
 

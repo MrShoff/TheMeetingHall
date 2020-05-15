@@ -6347,8 +6347,9 @@ namespace ACE.Entity.Enum
         GauntletVitalityI,
         GauntletVitalityII,
         GauntletVitalityIII,
+        HoltburgMeetingHallRecall,
 
-        NumSpells = 8192,
+        NumSpells = 8193,
 
         // shared cooldowns, (0x8000 | shared cooldown id)
         // these aren't actually in dat spelltable...

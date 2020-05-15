@@ -28,7 +28,7 @@ namespace ACE.Server.Managers
         /// <summary>
         /// A lookup table of HouseId => HouseGuid
         /// </summary>
-        private static Dictionary<uint, List<uint>> HouseIdToGuid { get; set; }
+        public static Dictionary<uint, List<uint>> HouseIdToGuid { get; set; }
 
         /// <summary>
         /// A list of all player-owned houses on the server,

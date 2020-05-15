@@ -64,5 +64,32 @@ namespace ACE.Server.Command.Handlers
             }
             return target;
         }
+
+        /// <summary>
+        /// Returns a random instatiation of a weenie
+        /// </summary>
+        public static WorldObject GetRandomInstanceOfObject(Session session, uint wcid)
+        {
+            System.Collections.Generic.List<Database.Models.World.LandblockInstance> matchingObjects = Database.DatabaseManager.World.GetLandblockInstancesByWcid(wcid);
+            if (matchingObjects.Count > 0)
+            {
+                int randomIndex = Common.ThreadSafeRandom.Next(0, matchingObjects.Count - 1);
+                var obj = session.Player.FindObject(matchingObjects[randomIndex].Guid, Player.SearchLocations.Everywhere);
+                return obj;
+            }
+            return null;
+        }
+
+        public static WorldObject GetRandomInstanceOfObject(Session session, string className)
+        {
+            System.Collections.Generic.Dictionary<uint, string> weenies = Database.DatabaseManager.World.GetAllWeenieClassNames();
+            foreach(var weenie in weenies)
+            {
+                if (weenie.Value == className)
+                    return GetRandomInstanceOfObject(session, weenie.Key);
+            }
+            WriteOutputInfo(session, $"GetRandomInstanceOfObject() - couldn't find {className}");
+            return null;
+        }
     }
 }

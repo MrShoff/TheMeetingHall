@@ -14,6 +14,8 @@ using ACE.Server.Entity.Actions;
 using ACE.Server.Factories;
 using ACE.Server.Network.GameEvent.Events;
 using ACE.Server.Managers;
+using System.IO;
+using ACE.Server.ShoffsMods;
 
 namespace ACE.Server.WorldObjects
 {
@@ -56,6 +58,7 @@ namespace ACE.Server.WorldObjects
         }
 
         private bool inventoryloaded;
+        public DynamicVendor DynamicVendorInfo { get; set; } = null;
 
         public Player LastPlayer;
 
@@ -71,6 +74,18 @@ namespace ACE.Server.WorldObjects
         public Vendor(Weenie weenie, ObjectGuid guid) : base(weenie, guid)
         {
             SetEphemeralValues();
+            if (weenie.WeenieClassId == 21747013 /* Vendor is Bag of Foy */)
+            {
+                if (File.Exists($"{weenie.WeenieClassId}.json"))
+                {
+                    string jsonFileContents = File.ReadAllText($"{weenie.WeenieClassId}.json");
+                    DynamicVendorInfo = Newtonsoft.Json.JsonConvert.DeserializeObject<DynamicVendor>(jsonFileContents);
+                }
+                else
+                {
+                    DynamicVendorInfo = new DynamicVendor(weenie.WeenieClassId);
+                }                
+            }
         }
 
         /// <summary>
@@ -79,6 +94,18 @@ namespace ACE.Server.WorldObjects
         public Vendor(Biota biota) : base(biota)
         {
             SetEphemeralValues();
+            if (biota.WeenieClassId == 21747013 /* Vendor is Bag of Foy */)
+            {
+                if (File.Exists($"{biota.WeenieClassId}.json"))
+                {
+                    string jsonFileContents = File.ReadAllText($"{biota.WeenieClassId}.json");
+                    DynamicVendorInfo = Newtonsoft.Json.JsonConvert.DeserializeObject<DynamicVendor>(jsonFileContents);
+                }
+                else
+                {
+                    DynamicVendorInfo = new DynamicVendor(biota.WeenieClassId);
+                }
+            }
         }
 
         private void SetEphemeralValues()
@@ -132,6 +159,7 @@ namespace ACE.Server.WorldObjects
         private List<WorldObject> RotUniques(List<WorldObject> worldObjects)
         {
             var results = new List<WorldObject>();
+            if (DynamicVendorInfo != null) return worldObjects;
 
             foreach(var wo in worldObjects)
             {
@@ -203,6 +231,36 @@ namespace ACE.Server.WorldObjects
             foreach (var item in Biota.PropertiesCreateList.Where(x => x.DestinationType == DestinationType.Shop))
             {
                 WorldObject wo = WorldObjectFactory.CreateNewWorldObject(item.WeenieClassId);
+                if (WeenieClassId == 21747010 /* Vendor is Jiminey */)
+                {
+                    if (ModdedWeenies.JimineysSalePrices.TryGetValue(item.WeenieClassId, out int specialPrice))
+                    {
+                        wo.Value = specialPrice;                        
+                    }
+                }
+                if (WeenieClassId == 21747013 /* Vendor is Bag of Foy */)
+                {
+                    var curItemInfo = DynamicVendorInfo.ItemValues.Find(x => x.Wcid == item.WeenieClassId);
+                    if (curItemInfo != null)
+                    {
+                        if (wo.ItemType == ItemType.Misc && (new string[] { "Glyph ", "Ink of" }).Contains(wo.Name.Substring(0, 6)))
+                        {
+                            wo.ItemType = ItemType.CraftAlchemyIntermediate; // move glyphs and inks to alchemy tab with the quills
+                        }
+                        if (wo.ItemType == ItemType.TinkeringMaterial) // salvage bags
+                        {
+                            wo.Structure = 100;
+                            wo.ItemWorkmanship = 5;
+                            wo.ItemType = ItemType.Misc; // so it will show up in the vendor
+                        }
+                        //if (wo.ItemType == ItemType.CraftFletchingIntermediate) // arrowheads
+                        //{
+                        //    wo.ItemType = ItemType.Misc; // so it will show up in the vendor
+                        //}
+                        wo.MaxStackSize = 1;
+                        wo.Value = (int)curItemInfo.PyrealValue;
+                    }
+                }
 
                 if (wo != null)
                 {
@@ -215,7 +273,6 @@ namespace ACE.Server.WorldObjects
                     DefaultItemsForSale.Add(wo.Guid, wo);
                 }
             }
-
             inventoryloaded = true;
         }
 
@@ -449,14 +506,54 @@ namespace ACE.Server.WorldObjects
             {
                 if (AlternateCurrency == null)
                 {
+                    var itemValue = wo.Value;
+                    if (DynamicVendorInfo != null)
+                    {
+                        var curItem = DynamicVendorInfo.ItemValues.Find(x => x.Wcid == wo.WeenieClassId);
+                        if (curItem != null)
+                        {
+                            itemValue = (int)curItem.PyrealValue;
+                            if (wo.ItemType == ItemType.TinkeringMaterial)
+                            {
+                                wo.ItemWorkmanship = 5;
+                                wo.Structure = 100;
+                            }
+                        }
+                    }
+
                     var sellRate = SellPrice ?? 1.0;
                     if (wo.ItemType == ItemType.PromissoryNote)
                         sellRate = 1.15;
 
-                    goldcost += Math.Max(1, (uint)Math.Ceiling(((float)sellRate * (wo.Value ?? 0)) - 0.1));
+                    goldcost += Math.Max(1, (uint)Math.Ceiling(((float)sellRate * (itemValue ?? 0)) - 0.1));
+                    log.Info($"goldcost: {goldcost}");
                 }
                 else
-                    altcost += (uint)Math.Max(1, wo.Value ?? 1);
+                {
+                    var itemValue = wo.Value;
+                    if (WeenieClassId == 21747010 /* Vendor is Jiminey */)
+                    {
+                        if (ModdedWeenies.JimineysSalePrices.TryGetValue(wo.WeenieClassId, out int specialPrice))
+                        {
+                            itemValue = specialPrice;
+                            if (wo.WeenieClassId == 20630) /* MMD */
+                            {
+                                itemValue = (int)Math.Max(1, (uint)Math.Ceiling((1.15f * (itemValue ?? 0)) - 0.1));
+                            }
+                        }
+                    }
+                    altcost += (uint)Math.Max(1, itemValue ?? 1);
+                }
+            }
+            if (DynamicVendorInfo != null)
+            {
+                List<DynamicVendor.Transaction> trx = new List<DynamicVendor.Transaction>();
+                foreach (var wcid in from g in genlist where DynamicVendorInfo.ItemValues.FindIndex(x => x.Wcid == g.WeenieClassId) >= 0 select g.WeenieClassId)
+                {
+                    var curItem = DynamicVendorInfo.ItemValues.Find(x => x.Wcid == wcid);
+                    trx.Add(new DynamicVendor.Transaction(curItem.Wcid, curItem.PyrealValue, DynamicVendor.Transaction.TransactionType.Buy));
+                }
+                DynamicVendorInfo.AddTransactions(trx, player.Guid.Full);
             }
 
             if (IsBusy && genlist.Any(i => i.GetProperty(PropertyBool.VendorService) == true))
@@ -483,6 +580,15 @@ namespace ACE.Server.WorldObjects
                         UniqueItemsForSale.Add(wo.Guid, wo);
                 }
             }
+            // player buying items is complete at this point, commit any pending transactions
+            if (DynamicVendorInfo != null)
+            {
+                DynamicVendorInfo.CommitTransactions(player.Guid.Full, WeenieClassId);
+                DefaultItemsForSale.Clear();
+                inventoryloaded = false;
+                LoadInventory();
+            }
+            
             ApproachVendor(player, VendorType.Buy, altCurrencySpent);
         }
 
@@ -490,10 +596,21 @@ namespace ACE.Server.WorldObjects
         // Helper Functions - Selling
         // ==========================
 
-        public int CalculatePayoutCoinAmount(List<WorldObject> items)
+        public int CalculatePayoutCoinAmount(List<WorldObject> items, bool playerConfirmed = false, Player player = null)
         {
             int payout = 0;
 
+            List<KeyValuePair<uint, uint>> tempValueHolder = null;
+            List<DynamicVendor.Transaction> tempTrxHolder = null;
+            if (DynamicVendorInfo != null)
+            {
+                tempValueHolder = new List<KeyValuePair<uint, uint>>();
+                tempTrxHolder = new List<DynamicVendor.Transaction>();
+                foreach (var item in DynamicVendorInfo.ItemValues.Where(x => (from i in items select i.WeenieClassId).Contains(x.Wcid)))
+                {
+                    tempValueHolder.Add(new KeyValuePair<uint,uint>(item.Wcid, item.PyrealValue));
+                }
+            }
             foreach (WorldObject wo in items)
             {
                 var buyRate = BuyPrice ?? 1;
@@ -501,8 +618,39 @@ namespace ACE.Server.WorldObjects
                 if (wo.ItemType == ItemType.PromissoryNote)
                     buyRate = 1.0;
 
+                int? itemValue = wo.Value;
+
+                if (DynamicVendorInfo != null)
+                {
+                    if (!wo.IsSellable) itemValue = 0;
+                    if ((wo.ItemType == ItemType.TinkeringMaterial && (wo.Structure ?? 0) == 100) /* salvage must be full bag */ || wo.ItemType != ItemType.TinkeringMaterial)
+                    {
+                        if (tempValueHolder.FindIndex(x => x.Key == wo.WeenieClassId) >= 0)
+                        {
+                            itemValue = 0;
+                            for (int i = 0; i < wo.StackSize; i++) // handle stackables
+                            {
+                                var tempValueHolderIndex = tempValueHolder.FindIndex(x => x.Key == wo.WeenieClassId);
+                                // create a transaction
+                                tempTrxHolder.Add(new DynamicVendor.Transaction(wo.WeenieClassId, tempValueHolder[tempValueHolderIndex].Value, DynamicVendor.Transaction.TransactionType.Sell));
+                                itemValue = (int)itemValue + (int)tempValueHolder[tempValueHolderIndex].Value;
+
+                                // update the value based on variance
+                                uint newValue = DynamicVendorInfo.GetNewValue(tempValueHolder[tempValueHolderIndex].Value, DynamicVendor.Transaction.TransactionType.Sell);
+                                tempValueHolder.RemoveAt(tempValueHolderIndex);
+                                tempValueHolder.Add(new KeyValuePair<uint, uint>(wo.WeenieClassId, newValue));
+                            }
+                        }
+                    }
+                }
+
                 // payout scaled by the vendor's buy rate
-                payout += Math.Max(1, (int)Math.Floor(((float)buyRate * (wo.Value ?? 0)) + 0.1));
+                payout += Math.Max(1, (int)Math.Floor(((float)buyRate * (itemValue ?? 0)) + 0.1));
+            }
+
+            if (playerConfirmed)
+            {
+                DynamicVendorInfo.AddTransactions(tempTrxHolder, player.Guid.Full);
             }
 
             return payout;
@@ -515,9 +663,21 @@ namespace ACE.Server.WorldObjects
         /// </summary>
         public void ProcessItemsForPurchase(Player player, List<WorldObject> items)
         {
+            // player selling items is complete at this point, commit any pending transactions
+            if (DynamicVendorInfo != null)
+            {
+                DynamicVendorInfo.CommitTransactions(player.Guid.Full, WeenieClassId);
+                DefaultItemsForSale.Clear();
+                inventoryloaded = false;
+                LoadInventory();
+            }
+
             foreach (var item in items)
             {
                 bool resellItem = true;
+
+                if (DynamicVendorInfo != null)
+                    resellItem = false;
 
                 // don't resell DestroyOnSell
                 if (item.GetProperty(PropertyBool.DestroyOnSell) ?? false)
@@ -550,7 +710,6 @@ namespace ACE.Server.WorldObjects
                     item.Destroy();
                 }
             }
-
             ApproachVendor(player, VendorType.Sell);
         }
     }

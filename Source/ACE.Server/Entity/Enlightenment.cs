@@ -61,11 +61,11 @@ namespace ACE.Server.Entity
                 return false;
             }
 
-            if (!VerifyLumAugs(player))
-            {
-                player.Session.Network.EnqueueSend(new GameMessageSystemChat($"You must have all luminance auras for enlightenment.", ChatMessageType.Broadcast));
-                return false;
-            }
+            //if (!VerifyLumAugs(player))
+            //{
+            //    player.Session.Network.EnqueueSend(new GameMessageSystemChat($"You must have all luminance auras for enlightenment.", ChatMessageType.Broadcast));
+            //    return false;
+            //}
 
             // TODO: society masteries
 
@@ -75,11 +75,11 @@ namespace ACE.Server.Entity
                 return false;
             }
 
-            if (player.Enlightenment >= 5)
-            {
-                player.Session.Network.EnqueueSend(new GameMessageSystemChat($"You have already reached the maximum enlightenment level!", ChatMessageType.Broadcast));
-                return false;
-            }
+            //if (player.Enlightenment >= 5)
+            //{
+            //    player.Session.Network.EnqueueSend(new GameMessageSystemChat($"You have already reached the maximum enlightenment level!", ChatMessageType.Broadcast));
+            //    return false;
+            //}
             return true;
         }
 

@@ -18,6 +18,9 @@ namespace ACE.Entity.Enum
         OnlyOlthoiPCs   = 0x40,
         NoOlthoiPCs     = 0x80,
         NoVitae         = 0x100,
-        NoNewAccounts   = 0x200
+        NoNewAccounts   = 0x200,
+
+        // Added to allow pink and red to both qualify as non-NPK
+        OnlyPKorPKL     = 0x400
     }
 }

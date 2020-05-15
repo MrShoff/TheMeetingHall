@@ -15,6 +15,7 @@ using ACE.Server.Factories;
 using ACE.Server.Managers;
 using ACE.Server.Network.GameEvent.Events;
 using ACE.Server.Network.GameMessages.Messages;
+using ACE.Server.ShoffsMods;
 
 namespace ACE.Server.WorldObjects
 {
@@ -179,6 +180,9 @@ namespace ACE.Server.WorldObjects
                 if (playerDamager.AugmentationBonusXp > 0)
                     totalXP *= 1.0f + playerDamager.AugmentationBonusXp * 0.05f;
 
+                if (playerDamager.IsInDailyDungeon)
+                    totalXP *= 1.5f;
+
                 playerDamager.EarnXP((long)Math.Round(totalXP), XpType.Kill);
 
                 // handle luminance
@@ -305,6 +309,25 @@ namespace ACE.Server.WorldObjects
 
                 var isPKdeath = player.IsPKDeath(killer);
                 var isPKLdeath = player.IsPKLiteDeath(killer);
+
+                if ((isPKdeath || isPKLdeath) && killer != null)
+                {                    
+                    if (DamageHistory.TotalHealth == (from d in DamageHistory.TotalDamage where d.Key == killer.Guid select d.Value.TotalDamage).Sum())
+                    {
+                        WorldObject pkHead = WorldObjectFactory.CreateNewWorldObject(21747200);
+                        pkHead.Name = $"{Name}'s Head";
+                        pkHead.LongDesc = $"{killer.Name} ripped this head off his PvP victim on {DateTime.Now.ToString("MM/dd/yyyy")}!" +
+                            $"\n\n{Name} was level {Level}" +
+                            $"\n{killer.Name} was level {killer.TryGetAttacker()?.Level}";
+                        pkHead.TimeToRot = 300;
+
+                        if (pkHead != null)
+                        {
+                            corpse.TryAddToInventory(pkHead);
+                            saveCorpse = true;
+                        }
+                    }
+                }
 
                 if (isPKdeath)
                     corpse.PkLevel = PKLevel.PK;
@@ -438,6 +461,72 @@ namespace ACE.Server.WorldObjects
                 }
                 else
                     droppedItems.Add(item);
+            }
+
+            // SHOFF MOD: daily dungeon loot logic
+            if (killer != null)
+            {
+                Player p = (killer.TryGetAttacker() ?? killer.TryGetPetOwner()) as Player;
+                if (p != null && DeathTreasure != null)
+                {
+                    TreasureTinker armorTinkerer = new TreasureTinker();
+                    armorTinkerer.SetChanceToTink(1.0f); // steel is boring
+                    TreasureTinker weaponTinkerer = new TreasureTinker();
+                    weaponTinkerer.SetChanceImbueWeapon(1.0f); // weapons should always drop imbued, otherwise you're just making them worthless
+
+
+                    if (p.IsInDailyDungeon)
+                    {
+                        weaponTinkerer.SetChanceToTink(DeathTreasure.Tier * 0.015f);                // 1.5% chance per tier.   Tier 7 loot has a  10.5% chance of any tinkering happening at all
+                        weaponTinkerer.SetChanceImbueJewelry(DeathTreasure.Tier * 0.03f);           // 3% chance per tier.   Tier 7 loot has a  21% chance.
+
+                        armorTinkerer.SetChanceImbueArmor(DeathTreasure.Tier * 0.003f);             // 0.3% chance per tier. Tier 7 loot has a  2.1% chance.
+                    }
+                    else
+                    {
+                        weaponTinkerer.SetChanceToTink(DeathTreasure.Tier * 0.01f);                 // 1% chance per tier.   Tier 7 loot has a  7% chance of any tinkering happening at all
+                        weaponTinkerer.SetChanceImbueJewelry(DeathTreasure.Tier * 0.02f);           // 2% chance per tier.   Tier 7 loot has a  14% chance.
+
+                        armorTinkerer.SetChanceImbueArmor(DeathTreasure.Tier * 0.002f);             // 0.2% chance per tier. Tier 7 loot has a  1.4% chance.             
+                    }
+
+                    if (corpse != null)
+                    {
+                        for (int i = 0; i < corpse.Inventory.Count; i++)
+                        {
+                            KeyValuePair<ObjectGuid, WorldObject> curItem = corpse.Inventory.ElementAt(i);
+                            if (curItem.Value != null)
+                            {
+                                WorldObject tinkedVariant = null;
+                                if (curItem.Value.ItemType == ItemType.Armor || (curItem.Value.ItemType == ItemType.Clothing && curItem.Value.ArmorLevel > 0))
+                                {
+                                    tinkedVariant = armorTinkerer.ApplyTinks(curItem.Value, p);
+                                }
+                                else if (curItem.Value.ItemType == ItemType.MeleeWeapon || curItem.Value.ItemType == ItemType.MissileWeapon || curItem.Value.ItemType == ItemType.Caster || curItem.Value.ItemType == ItemType.Jewelry)
+                                {
+                                    tinkedVariant = weaponTinkerer.ApplyTinks(curItem.Value, p);
+                                }
+                                if (tinkedVariant != null)
+                                {
+                                    corpse.TryRemoveFromInventory(curItem.Key);
+                                    corpse.TryAddToInventory(tinkedVariant);
+                                }
+                            }
+                        }
+
+                        if (p.IsInDailyDungeon) // 10% to drop Daily Dungeon currency
+                        {
+                            if (Common.ThreadSafeRandom.Next(1, 10) <= 1)
+                            {
+                                WorldObject ddCurrency = WorldObjectFactory.CreateNewWorldObject(21747000);
+                                if (ddCurrency != null)
+                                {
+                                    corpse.TryAddToInventory(ddCurrency);
+                                }
+                            }
+                        }
+                    }
+                }      
             }
 
             return droppedItems;

@@ -238,7 +238,6 @@ namespace ACE.Server.WorldObjects
         public void FinalizeBuyTransaction(Vendor vendor, List<WorldObject> uqlist, List<WorldObject> genlist, uint goldcost, uint altcost)
         {
             // vendor accepted the transaction
-
             var valid = ValidateBuyTransaction(vendor, goldcost, altcost);
 
             if (valid)
@@ -345,7 +344,7 @@ namespace ACE.Server.WorldObjects
         /// <summary>
         /// Client Calls this when Sell is clicked.
         /// </summary>
-        public void HandleActionSellItem(List<ItemProfile> itemprofiles, uint vendorGuid)
+        public void HandleActionSellItem(List<ItemProfile> itemprofiles, uint vendorGuid, bool playerConfirmed = false)
         {
             if (IsBusy)
             {
@@ -376,7 +375,7 @@ namespace ACE.Server.WorldObjects
                 if (item == null)
                     continue;
 
-                if ((acceptedItemTypes & item.ItemType) == 0 || !item.IsSellable || item.Retained)
+                if (((acceptedItemTypes & item.ItemType) == 0 || !item.IsSellable || item.Retained) && vendor.WeenieClassId != 21747013)
                 {
                     var itemName = (item.StackSize ?? 1) > 1 ? item.GetPluralName() : item.Name;
                     Session.Network.EnqueueSend(new GameEventCommunicationTransientString(Session, $"The {itemName} is unsellable.")); // retail message did not include item name, leaving in that for now.
@@ -410,12 +409,21 @@ namespace ACE.Server.WorldObjects
                 return;
             }
 
-            var payoutCoinAmount = vendor.CalculatePayoutCoinAmount(sellList);
+            var payoutCoinAmount = vendor.CalculatePayoutCoinAmount(sellList, playerConfirmed, this);
 
             if (payoutCoinAmount < 0)
             {
                 Session.Network.EnqueueSend(new GameEventCommunicationTransientString(Session, "Transaction failed."));
                 log.Warn($"{Name} (0x({Guid}) tried to sell something to {vendor.Name} (0x{vendor.Guid}) resulting in a payout of {payoutCoinAmount} pyreals.");
+                Session.Network.EnqueueSend(new GameEventInventoryServerSaveFailed(Session, Guid.Full));
+                SendUseDoneEvent();
+                return;
+            }
+
+            if (!playerConfirmed && vendor.DynamicVendorInfo != null)
+            {
+                var msg = $"These items sell for {payoutCoinAmount.ToString("#,##0")}p\nContinue?";
+                ConfirmationManager.EnqueueSend(new Confirmation_Custom(Guid, () => HandleActionSellItem(itemprofiles, vendorGuid, true)), msg);
                 Session.Network.EnqueueSend(new GameEventInventoryServerSaveFailed(Session, Guid.Full));
                 SendUseDoneEvent();
                 return;

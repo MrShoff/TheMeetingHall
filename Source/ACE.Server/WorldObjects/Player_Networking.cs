@@ -91,6 +91,12 @@ namespace ACE.Server.WorldObjects
                     UpdateProperty(this, PropertyInt.PlayerKillerStatus, (int)PlayerKillerStatus.NPK, true);
 
                     Session.Network.EnqueueSend(new GameEventWeenieError(Session, WeenieError.YouAreNonPKAgain));
+
+                    if (IsInDailyDungeon && !IsAdmin && !IsSentinel)
+                    {
+                        WorldManager.ThreadSafeTeleport(this, new Position(Sanctuary));
+                        Session.Network.EnqueueSend(new GameMessageSystemChat("You have been removed from the Daily Dungeon due to your NPK status.\nVisit the Altar of Bael'Zharon or type /pkl", ChatMessageType.Broadcast));
+                    }
                 });
                 actionChain.EnqueueChain();
             }

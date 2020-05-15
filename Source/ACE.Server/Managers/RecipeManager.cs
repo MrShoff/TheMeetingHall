@@ -658,11 +658,14 @@ namespace ACE.Server.Managers
             else
                 return false;
 
-            /*if (IconUnderlay.TryGetValue(effect, out var icon))
+            if (IconUnderlay.TryGetValue(effect, out var icon))
             {
                 target.IconUnderlayId = icon;
-                player.Session.Network.EnqueueSend(new GameMessagePublicUpdatePropertyDataID(target, PropertyDataId.IconUnderlay, target.IconUnderlayId.Value));
-            }*/
+                if (player != null)
+                {
+                    player.Session.Network.EnqueueSend(new GameMessagePublicUpdatePropertyDataID(target, PropertyDataId.IconUnderlay, target.IconUnderlayId.Value));
+                }
+            }
 
             return true;
         }

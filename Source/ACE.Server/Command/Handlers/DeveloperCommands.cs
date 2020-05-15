@@ -626,6 +626,44 @@ namespace ACE.Server.Command.Handlers
         // ==================================
 
         /// <summary>
+        /// Teleports the player to a random instance of an object by weenie class name or weenie class id
+        /// </summary>
+        [CommandHandler("teleobj", AccessLevel.Developer, CommandHandlerFlag.RequiresWorld, 1, "Teleport to an instance of an object", "/teleobj <class_name>\n/teleobj <wcid>")]
+        public static void HandleTeleObj(Session session, params string[] parameters)
+        {
+            if (parameters?.Length != 1) return;
+
+            WorldObject wo;
+            if (uint.TryParse(parameters[0], out var wcid))
+            {
+                wo = CommandHandlerHelper.GetRandomInstanceOfObject(session, wcid);
+            }
+            else
+            {
+                wo = CommandHandlerHelper.GetRandomInstanceOfObject(session, parameters[0]);
+            }
+
+            if (wo != null)
+            {
+                Position pos = wo.GetPosition(PositionType.Location);
+                if (pos != null)
+                {
+                    session.Player.Teleport(new Position(pos));
+                }
+                else
+                {
+                    var couldNotFindObjectMsg = new GameMessageSystemChat($"{wo.Name} ({parameters[0]}) was found but does not have a Location", ChatMessageType.Broadcast);
+                    session.Network.EnqueueSend(couldNotFindObjectMsg);
+                }
+            }
+            else
+            {
+                var couldNotFindObjectMsg = new GameMessageSystemChat($"Could not find object {parameters[0]}", ChatMessageType.Broadcast);
+                session.Network.EnqueueSend(couldNotFindObjectMsg);
+            }
+        }
+
+        /// <summary>
         /// telexyz cell x y z qx qy qz qw
         /// </summary>
         [CommandHandler("telexyz", AccessLevel.Developer, CommandHandlerFlag.RequiresWorld, 8, "Teleport to a location.", "cell x y z qx qy qz qw\n" + "all parameters must be specified and cell must be in decimal form")]
@@ -1804,6 +1842,54 @@ namespace ACE.Server.Command.Handlers
                 value = Convert.ToString(obj.GetProperty((PropertyDataId)result));
 
             session.Network.EnqueueSend(new GameMessageSystemChat($"{obj.Name} ({obj.Guid}): {prop} = {value}", ChatMessageType.Broadcast));
+        }
+
+        /// <summary>
+        /// Sets the destination property for the last appraised portal
+        /// </summary>
+        [CommandHandler("setdestination", AccessLevel.Developer, CommandHandlerFlag.RequiresWorld, 1, "Sets the Destionation property of the last appraised portal", "/setdestination <loc>")]
+        public static void HandleSetDestination(Session session, params string[] parameters)
+        {
+            var obj = CommandHandlerHelper.GetLastAppraisedObject(session);
+
+            if (obj == null) return;
+            if (obj.ItemType != ItemType.Portal) return;
+
+            try
+            {
+                uint cell;
+
+                if (parameters[0].StartsWith("0x"))
+                {
+                    string strippedcell = parameters[0].Substring(2);
+                    cell = (uint)int.Parse(strippedcell, System.Globalization.NumberStyles.HexNumber);
+                }
+                else
+                    cell = (uint)int.Parse(parameters[0], System.Globalization.NumberStyles.HexNumber);
+
+                var positionData = new float[7];
+                for (uint i = 0u; i < 7u; i++)
+                {
+                    if (!float.TryParse(parameters[i + 1].Trim(new Char[] { ' ', '[', ']' }), out var position))
+                        return;
+
+                    positionData[i] = position;
+                }
+
+                obj.SetPosition(PositionType.Destination, new Position(cell, positionData[0], positionData[1], positionData[2], positionData[4], positionData[5], positionData[6], positionData[3]));
+
+                session.Network.EnqueueSend(new GameMessageSystemChat($"{obj.Name} ({obj.Guid}): Destination = {string.Join(' ', parameters)}", ChatMessageType.Broadcast));
+                PlayerManager.BroadcastToAuditChannel(session.Player, $"{session.Player.Name} changed a property for {obj.Name} ({obj.Guid}): Destination = {string.Join(' ',parameters)}");
+            }
+            catch (Exception)
+            {
+                ChatPacket.SendServerMessage(session, "Invalid arguments for @setdestination", ChatMessageType.Broadcast);
+                ChatPacket.SendServerMessage(session, "Hint: @setdestination follows the same number order as displayed from @loc output", ChatMessageType.Broadcast);
+                ChatPacket.SendServerMessage(session, "Usage: @setdestination cell [x y z] (qw qx qy qz)", ChatMessageType.Broadcast);
+                ChatPacket.SendServerMessage(session, "Example: @setdestination 0x7F0401AD [12.319900 -28.482000 0.005000] -0.338946 0.000000 0.000000 -0.940806", ChatMessageType.Broadcast);
+                ChatPacket.SendServerMessage(session, "Example: @setdestination 0x7F0401AD 12.319900 -28.482000 0.005000 -0.338946 0.000000 0.000000 -0.940806", ChatMessageType.Broadcast);
+                ChatPacket.SendServerMessage(session, "Example: @setdestination 7F0401AD 12.319900 -28.482000 0.005000", ChatMessageType.Broadcast);
+            }
         }
 
         /// <summary>
