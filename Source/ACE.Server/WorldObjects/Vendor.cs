@@ -499,7 +499,12 @@ namespace ACE.Server.WorldObjects
                 if (wo.ItemType == ItemType.PromissoryNote)
                     sellRate = 1.15;
 
-                goldcost += Math.Max(1, (uint)Math.Ceiling(((float)sellRate * (wo.Value ?? 0)) - 0.1));
+                var cost = Math.Max(1, (uint)Math.Ceiling(((float)sellRate * (wo.Value ?? 0)) - 0.1));
+
+                if (AlternateCurrency == null)
+                    goldcost += cost;
+                else
+                    altcost += cost;
             }
 
             foreach (WorldObject wo in genlist)
