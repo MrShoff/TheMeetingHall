@@ -474,7 +474,8 @@ namespace ACE.Server.WorldObjects
             if (AllegianceXPCached == 0) return;
 
             // TODO: handle ulong -> long?
-            GrantXP((long)AllegianceXPCached, XpType.Allegiance, ShareType.None);
+            if (Enlightenment == 0) // in the meeting hall mod, receiving passup is disabled for enlightened characters
+                GrantXP((long)AllegianceXPCached, XpType.Allegiance, ShareType.None);
 
             AllegianceXPReceived += AllegianceXPCached;
 

@@ -464,10 +464,23 @@ namespace ACE.Server.WorldObjects
                     droppedItems.Add(item);
             }
 
-            // SHOFF MOD: daily dungeon loot logic
+            // SHOFF MOD: tinked loot logic
             if (killer != null)
             {
-                Player p = (killer.TryGetAttacker() ?? killer.TryGetPetOwner()) as Player;
+                Player p = null;
+                WorldObject killerPlayer = null;
+                if (killer.Attacker != null)
+                {
+                    killerPlayer = killer.TryGetAttacker();
+                }
+                if (killerPlayer != null)
+                {
+                    p = killerPlayer as Player;
+                }
+                if (p == null && killer.PetOwner != null)
+                {
+                    p = killer.TryGetPetOwner();
+                }
                 if (p != null && DeathTreasure != null)
                 {
                     TreasureTinker armorTinkerer = new TreasureTinker();
@@ -478,17 +491,17 @@ namespace ACE.Server.WorldObjects
 
                     if (p.IsInDailyDungeon)
                     {
-                        weaponTinkerer.SetChanceToTink(DeathTreasure.Tier * 0.015f);                // 1.5% chance per tier.   Tier 7 loot has a  10.5% chance of any tinkering happening at all
-                        weaponTinkerer.SetChanceImbueJewelry(DeathTreasure.Tier * 0.03f);           // 3% chance per tier.   Tier 7 loot has a  21% chance.
+                        weaponTinkerer.SetChanceToTink(DeathTreasure.Tier * 0.015f);                // 1.5% chance per tier.    Tier 7 loot has a  10.5% chance of any tinkering happening at all
+                        weaponTinkerer.SetChanceImbueJewelry(DeathTreasure.Tier * 0.03f);           // 3% chance per tier.      Tier 7 loot has a  21% chance.
 
-                        armorTinkerer.SetChanceImbueArmor(DeathTreasure.Tier * 0.003f);             // 0.3% chance per tier. Tier 7 loot has a  2.1% chance.
+                        armorTinkerer.SetChanceImbueArmor(DeathTreasure.Tier * 0.003f);             // 0.3% chance per tier.    Tier 7 loot has a  2.1% chance.
                     }
                     else
                     {
-                        weaponTinkerer.SetChanceToTink(DeathTreasure.Tier * 0.01f);                 // 1% chance per tier.   Tier 7 loot has a  7% chance of any tinkering happening at all
-                        weaponTinkerer.SetChanceImbueJewelry(DeathTreasure.Tier * 0.02f);           // 2% chance per tier.   Tier 7 loot has a  14% chance.
+                        weaponTinkerer.SetChanceToTink(DeathTreasure.Tier * 0.01f);                 // 1% chance per tier.      Tier 7 loot has a  7% chance of any tinkering happening at all
+                        weaponTinkerer.SetChanceImbueJewelry(DeathTreasure.Tier * 0.02f);           // 2% chance per tier.      Tier 7 loot has a  14% chance.
 
-                        armorTinkerer.SetChanceImbueArmor(DeathTreasure.Tier * 0.002f);             // 0.2% chance per tier. Tier 7 loot has a  1.4% chance.             
+                        armorTinkerer.SetChanceImbueArmor(DeathTreasure.Tier * 0.002f);             // 0.2% chance per tier.    Tier 7 loot has a  1.4% chance.             
                     }
 
                     if (corpse != null)
@@ -527,7 +540,7 @@ namespace ACE.Server.WorldObjects
                             }
                         }
                     }
-                }      
+                }
             }
 
             return droppedItems;

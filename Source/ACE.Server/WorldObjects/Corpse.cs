@@ -224,7 +224,7 @@ namespace ACE.Server.WorldObjects
         /// </summary>
         public void TryGenerateRare(DamageHistoryInfo killer)
         {
-            var killerPlayer = killer.TryGetAttacker() as Player;
+            var killerPlayer = (killer.TryGetAttacker() as Player) ?? killer.TryGetPetOwner();
             var timestamp = (int)Time.GetUnixTime();
             var luck = 0;
             var secondChanceGranted = false;

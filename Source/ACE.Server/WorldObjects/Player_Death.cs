@@ -15,6 +15,7 @@ using ACE.Server.Managers;
 using ACE.Server.Network.Structure;
 using ACE.Server.Network.GameEvent.Events;
 using ACE.Server.Network.GameMessages.Messages;
+using ACE.Server.ShoffsMods.PKArena;
 
 namespace ACE.Server.WorldObjects
 {
@@ -194,14 +195,25 @@ namespace ACE.Server.WorldObjects
             if (!IsPKLiteDeath(topDamager))
                 InflictVitaePenalty();
 
-            if (IsPKDeath(topDamager) || AugmentationSpellsRemainPastDeath == 0)
+            var inProgressParticipant = MatchManager.TryGetInProgressParticipant(this);
+
+            if (inProgressParticipant == null)
             {
-                var msgPurgeEnchantments = new GameEventMagicPurgeEnchantments(Session);
-                EnchantmentManager.RemoveAllEnchantments();
-                Session.Network.EnqueueSend(msgPurgeEnchantments);
+                if (IsPKDeath(topDamager) || AugmentationSpellsRemainPastDeath == 0)
+                {
+                    var msgPurgeEnchantments = new GameEventMagicPurgeEnchantments(Session);
+                    EnchantmentManager.RemoveAllEnchantments();
+                    Session.Network.EnqueueSend(msgPurgeEnchantments);
+                }
+                else
+                    Session.Network.EnqueueSend(new GameMessageSystemChat("Your augmentation prevents the tides of death from ripping away your current enchantments!", ChatMessageType.Broadcast));
             }
             else
-                Session.Network.EnqueueSend(new GameMessageSystemChat("Your augmentation prevents the tides of death from ripping away your current enchantments!", ChatMessageType.Broadcast));
+            {
+                inProgressParticipant.HandleDeath(lastDamager, topDamager);
+                return;
+            }
+            
 
             // wait for the death animation to finish
             var dieChain = new ActionChain();

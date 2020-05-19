@@ -55,6 +55,7 @@ namespace ACE.Server.Entity
 
         public static bool VerifyRequirements(Player player)
         {
+
             if (player.Level < 275)
             {
                 player.Session.Network.EnqueueSend(new GameMessageSystemChat($"You must be level 275 for enlightenment.", ChatMessageType.Broadcast));
@@ -80,6 +81,12 @@ namespace ACE.Server.Entity
             //    player.Session.Network.EnqueueSend(new GameMessageSystemChat($"You have already reached the maximum enlightenment level!", ChatMessageType.Broadcast));
             //    return false;
             //}
+
+            if (System.DateTime.Now.Date.Day > 7)
+            {
+                player.Session.Network.EnqueueSend(new GameMessageSystemChat($"Enlightenment is only available during the first 7 days of the month.", ChatMessageType.Broadcast));
+                return false;
+            }
             return true;
         }
 
@@ -127,9 +134,17 @@ namespace ACE.Server.Entity
                 player.Session.Network.EnqueueSend(new GameMessagePrivateUpdateSkill(player, skill));
             }
 
+            // reset attributes
+            foreach (var attribute in player.Attributes.Values)
+            {
+                attribute.ExperienceSpent = 0;
+                attribute.Ranks = 0;
+
+                player.Session.Network.EnqueueSend(new GameMessagePrivateUpdateAttribute(player, attribute));
+            }
+
             // remove skill credits except for those from:
             // todo: luminance auras, Aun Ralirea, and Chasing Oswald quests.
-            player.UpdateProperty(player, PropertyInt.AvailableSkillCredits, 0);
         }
 
         public static void RemoveAetheria(Player player)
@@ -193,13 +208,11 @@ namespace ACE.Server.Entity
                     break;
             }
 
+            // scale XP
+            float xpScale = 1.0f / System.MathF.Pow(1.3f, player.Enlightenment);
+            player.SetProperty(PropertyFloat.GlobalXpMod, xpScale);
+
             // todo: attribute reset certificate
-
-            // +2 vitality
-            // handled automatically via PropertyInt.Enlightenment * 2
-
-            /*var vitality = player.LumAugVitality + 2;
-            player.UpdateProperty(player, PropertyInt.LumAugVitality, vitality);*/
         }
     }
 }

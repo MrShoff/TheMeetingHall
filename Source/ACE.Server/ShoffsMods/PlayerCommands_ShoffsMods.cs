@@ -3,12 +3,17 @@ using ACE.Database;
 using ACE.Entity.Enum;
 using ACE.Entity.Enum.Properties;
 using ACE.Entity.Models;
+using ACE.Server.Entity;
 using ACE.Server.Factories;
 using ACE.Server.Managers;
 using ACE.Server.Network;
 using ACE.Server.Network.GameMessages.Messages;
+using ACE.Server.ShoffsMods.PKArena;
 using ACE.Server.WorldObjects;
 using ACE.Server.WorldObjects.Entity;
+using ACE.Server.WorldObjects.Managers;
+using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Linq;
 using System.Text.RegularExpressions;
@@ -27,7 +32,95 @@ namespace ACE.Server.Command.Handlers
             "/mule [character name]")]
         public static void HandleTestFunc(Session session, params string[] parameters)
         {
-            _ = session.Player.IsInDailyDungeon;
+            //_ = session.Player.IsInDailyDungeon;
+        }
+
+
+
+        /// <summary>
+        /// Using this to trigger enlightenment until the NPC is introduced
+        /// </summary>
+        [CommandHandler("dequeue", AccessLevel.Player, CommandHandlerFlag.RequiresWorld, 0,
+            "Dequeues you from the duel queue")]
+        public static void HandlePlayerDequeue(Session session, params string[] parameters)
+        {
+            MatchManager.DequeueMe(session.Player.Guid);
+        }
+
+        /// <summary>
+        /// Using this to trigger enlightenment until the NPC is introduced
+        /// </summary>
+        [CommandHandler("queue", AccessLevel.Player, CommandHandlerFlag.RequiresWorld, 1,
+            "Queues you for a rated PK fight!",
+            "[me or us]")]
+        public static void HandlePlayerQueue(Session session, params string[] parameters)
+        {
+            if (parameters.Length == 1)
+            {
+                if (parameters[0].Equals("me", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (session.Player != null)
+                    {
+                        Team team = new Team();
+                        PKArenaParticipant me = new PKArenaParticipant(session.Player.Guid);
+                        team.Participants.Add(me);
+                        team.Rating = me.PKArenaRating1;
+                        MatchManager.EnqueueTeam(team);
+                    }
+                }
+                if (parameters[0].Equals("us", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (session.Player != null)
+                    {
+                        var fellowshipMembers = session.Player.GetFellowshipTargets();
+                        if (fellowshipMembers.Count != 3)
+                        {
+                            session.Network.EnqueueSend(new GameMessageSystemChat($"The team queue is only available for fellowships of 3. Your fellowship has {fellowshipMembers.Count} member{(fellowshipMembers.Count > 1 ? "s" : "")}.", ChatMessageType.Broadcast));
+                            return;
+                        }
+                        else
+                        {
+                            session.Network.EnqueueSend(new GameMessageSystemChat($"This feature is not fully implemented yet. Try back later.", ChatMessageType.Broadcast));
+                            return;
+                        }
+                        Team team = new Team();
+
+                        PKArenaParticipant me = new PKArenaParticipant(session.Player.Guid);
+                        me.AcceptedQueue = true;
+                        team.Participants.Add(me);
+
+                        foreach(var player in fellowshipMembers)
+                        {
+                            var msg = $"{session.Player.Name} has initiated a PK arena queue for your fellowship.\nDo you wish to accept?";
+                            player.ConfirmationManager.EnqueueSend(new Confirmation_Custom(player.Guid, () => HandleQueueFellowship(team)), msg);
+                            PKArenaParticipant fellowMember = new PKArenaParticipant(player.Guid);
+                            team.Participants.Add(fellowMember);
+                        }
+                        team.Participants.ForEach(x => team.Rating += x.PKArenaRating3);
+                        team.Rating /= 3;
+                        teamsWaitingForResponse.Add(Tuple.Create(team, DateTime.Now));
+                    }
+                }
+            }
+        }
+
+        private static List<Tuple<Team, DateTime>> teamsWaitingForResponse = new List<Tuple<Team, DateTime>>();
+
+        private static void HandleQueueFellowship(Team team)
+        {
+
+            MatchManager.EnqueueTeam(team);
+        }
+
+        /// <summary>
+        /// Using this to trigger enlightenment until the NPC is introduced
+        /// </summary>
+        [CommandHandler("enlighten", AccessLevel.Player, CommandHandlerFlag.RequiresWorld, 0,
+            "Begins the enlightenment process!",
+            "/enlighten")]
+        public static void HandlePlayerEnlightenment(Session session, params string[] parameters)
+        {
+            Enlightenment.HandleEnlightenment(session.Player);
         }
 
         /// <summary>

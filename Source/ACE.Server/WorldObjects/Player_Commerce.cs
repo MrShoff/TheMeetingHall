@@ -32,6 +32,31 @@ namespace ACE.Server.WorldObjects
             if (sendUpdateMessageIfChanged)
                 Session.Network.EnqueueSend(new GameMessagePrivateUpdatePropertyInt(this, PropertyInt.CoinValue, CoinValue ?? 0));
         }
+        private List<WorldObject> CreatePayoutMmdStacks(int amount)
+        {
+            var mmdStacks = new List<WorldObject>();
+
+            while (amount > 0)
+            {
+                var currencyStack = WorldObjectFactory.CreateNewWorldObject("tradenote250000");
+
+                // payment contains a max stack
+                if (currencyStack.MaxStackSize <= amount)
+                {
+                    currencyStack.SetStackSize(currencyStack.MaxStackSize);
+                    mmdStacks.Add(currencyStack);
+                    amount -= currencyStack.MaxStackSize.Value;
+                }
+                else // not a full stack
+                {
+                    currencyStack.SetStackSize(amount);
+                    mmdStacks.Add(currencyStack);
+                    amount -= amount;
+                }
+            }
+
+            return mmdStacks;
+        }
 
         private List<WorldObject> CreatePayoutCoinStacks(int amount)
         {
@@ -340,6 +365,7 @@ namespace ACE.Server.WorldObjects
         // ================================
 
         private const uint coinStackWeenieClassId = 273;
+        private const uint mmdStackWeenieClassId = 20630;
 
         /// <summary>
         /// Client Calls this when Sell is clicked.
@@ -420,9 +446,16 @@ namespace ACE.Server.WorldObjects
                 return;
             }
 
+            int payoutMmdAmount = (int)Math.Round(payoutCoinAmount / 287500.0, MidpointRounding.ToZero);
+            if (sellList.FindAll(x => x.ItemType == ItemType.PromissoryNote).Count > 0)
+            {
+                payoutMmdAmount = 0;
+            }
+            payoutCoinAmount -= (287500 * payoutMmdAmount);
+
             if (!playerConfirmed && vendor.DynamicVendorInfo != null)
             {
-                var msg = $"These items sell for {payoutCoinAmount.ToString("#,##0")}p\nContinue?";
+                var msg = $"These items sell for {payoutMmdAmount} MMDs and {payoutCoinAmount.ToString("#,##0")}p\nContinue?";
                 ConfirmationManager.EnqueueSend(new Confirmation_Custom(Guid, () => HandleActionSellItem(itemprofiles, vendorGuid, true)), msg);
                 Session.Network.EnqueueSend(new GameEventInventoryServerSaveFailed(Session, Guid.Full));
                 SendUseDoneEvent();
@@ -433,9 +466,10 @@ namespace ACE.Server.WorldObjects
             var playerAvailableBurden = GetAvailableBurden();
 
             var numberOfCoinStacksToCreate = PreCheckItem(coinStackWeenieClassId, payoutCoinAmount, 0, GetFreeInventorySlots(), GetAvailableBurden(), out var totalEncumburanceOfCoinStacks, out _);
+            var numberOfMmdStacksToCreate = PreCheckItem(mmdStackWeenieClassId, payoutMmdAmount, 0, GetFreeInventorySlots(), GetAvailableBurden(), out var totalEncumburanceOfMmdStacks, out _);
 
-            var playerDoesNotHaveEnoughPackSpace = playerFreeInventorySlots < numberOfCoinStacksToCreate;
-            var playerDoesNotHaveEnoughBurdenCapacity = playerAvailableBurden < totalEncumburanceOfCoinStacks;
+            var playerDoesNotHaveEnoughPackSpace = playerFreeInventorySlots < (numberOfCoinStacksToCreate + numberOfMmdStacksToCreate);
+            var playerDoesNotHaveEnoughBurdenCapacity = playerAvailableBurden < (totalEncumburanceOfCoinStacks + totalEncumburanceOfMmdStacks);
 
             if (playerDoesNotHaveEnoughPackSpace || playerDoesNotHaveEnoughBurdenCapacity)
             {
@@ -449,14 +483,18 @@ namespace ACE.Server.WorldObjects
             }
 
             var payoutCoinStacks = CreatePayoutCoinStacks(payoutCoinAmount);
+            var payoutMmdStacks = CreatePayoutMmdStacks(payoutMmdAmount);
 
             // Make sure we have enough pack space for the payout
-            if (GetFreeInventorySlots() + sellList.Count - payoutCoinStacks.Count < 0)
+            if (GetFreeInventorySlots() + sellList.Count - payoutCoinStacks.Count - payoutMmdStacks.Count < 0)
             {
                 Session.Network.EnqueueSend(new GameEventCommunicationTransientString(Session, "Not enough inventory space!")); // TODO: find retail messages
                 Session.Network.EnqueueSend(new GameEventInventoryServerSaveFailed(Session, Guid.Full));
 
                 foreach (var item in payoutCoinStacks)
+                    item.Destroy();
+
+                foreach (var item in payoutMmdStacks)
                     item.Destroy();
 
                 SendUseDoneEvent(WeenieError.FullInventoryLocation);
@@ -477,6 +515,16 @@ namespace ACE.Server.WorldObjects
 
             // Add the payout to inventory
             foreach (var item in payoutCoinStacks)
+            {
+                if (!TryCreateInInventoryWithNetworking(item)) // This shouldn't happen
+                {
+                    log.WarnFormat("Payout 0x{0:X8}:{1} for player {2} failed to add to inventory HandleActionSellItem.", item.Guid.Full, item.Name, Name);
+                    item.Destroy();
+                }
+            }
+
+
+            foreach (var item in payoutMmdStacks)
             {
                 if (!TryCreateInInventoryWithNetworking(item)) // This shouldn't happen
                 {

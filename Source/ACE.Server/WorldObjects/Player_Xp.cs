@@ -26,8 +26,9 @@ namespace ACE.Server.WorldObjects
             // apply xp modifier
             var modifier = PropertyManager.GetDouble("xp_modifier").Item;
             var enchantment = EnchantmentManager.GetXPMod();
+            var globalMod = GetProperty(PropertyFloat.GlobalXpMod) ?? 1.0f;
 
-            var m_amount = (long)Math.Round(amount * enchantment * modifier);
+            var m_amount = (long)Math.Round(amount * enchantment * modifier * globalMod);
 
             if (m_amount < 0)
             {
@@ -267,7 +268,7 @@ namespace ACE.Server.WorldObjects
                 Level++;
 
                 // increase the skill credits if the chart allows this level to grant a credit
-                if (xpTable.CharacterLevelSkillCreditList[Level ?? 0] > 0)
+                if (xpTable.CharacterLevelSkillCreditList[Level ?? 0] > 0 && Enlightenment == 0)
                 {
                     AvailableSkillCredits += (int)xpTable.CharacterLevelSkillCreditList[Level ?? 0];
                     TotalSkillCredits += (int)xpTable.CharacterLevelSkillCreditList[Level ?? 0];
@@ -289,9 +290,15 @@ namespace ACE.Server.WorldObjects
                 message += (AvailableSkillCredits > 0) ? $"\nYou have {AvailableExperience:#,###0} experience points and {AvailableSkillCredits} skill credits available to raise skills and attributes." : $"\nYou have {AvailableExperience:#,###0} experience points available to raise skills and attributes.";
 
                 var levelUp = new GameMessagePrivateUpdatePropertyInt(this, PropertyInt.Level, Level ?? 1);
+                if (Enlightenment > 0 && Level >= 150)
+                {
+                    var curXpMod = GetProperty(PropertyFloat.GlobalXpMod);
+                    if (curXpMod != 2.0f)
+                        SetProperty(PropertyFloat.GlobalXpMod, 2.0f);
+                }
                 var currentCredits = new GameMessagePrivateUpdatePropertyInt(this, PropertyInt.AvailableSkillCredits, AvailableSkillCredits ?? 0);
 
-                if (Level != maxLevel && !creditEarned)
+                if (Level != maxLevel && !creditEarned && Enlightenment == 0)
                 {
                     var nextLevelWithCredits = 0;
 

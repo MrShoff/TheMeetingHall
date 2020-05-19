@@ -245,7 +245,7 @@ namespace ACE.Server.WorldObjects
                     {
                         if (wo.ItemType == ItemType.Misc && (new string[] { "Glyph ", "Ink of" }).Contains(wo.Name.Substring(0, 6)))
                         {
-                            wo.ItemType = ItemType.CraftAlchemyIntermediate; // move glyphs and inks to alchemy tab with the quills
+                            wo.ItemType = ItemType.CraftAlchemyIntermediate; // move inks to alchemy tab with the quills
                         }
                         if (wo.ItemType == ItemType.TinkeringMaterial) // salvage bags
                         {
@@ -253,10 +253,6 @@ namespace ACE.Server.WorldObjects
                             wo.ItemWorkmanship = 5;
                             wo.ItemType = ItemType.Misc; // so it will show up in the vendor
                         }
-                        //if (wo.ItemType == ItemType.CraftFletchingIntermediate) // arrowheads
-                        //{
-                        //    wo.ItemType = ItemType.Misc; // so it will show up in the vendor
-                        //}
                         wo.MaxStackSize = 1;
                         wo.Value = (int)curItemInfo.PyrealValue;
                     }
@@ -531,7 +527,6 @@ namespace ACE.Server.WorldObjects
                         sellRate = 1.15;
 
                     goldcost += Math.Max(1, (uint)Math.Ceiling(((float)sellRate * (itemValue ?? 0)) - 0.1));
-                    log.Info($"goldcost: {goldcost}");
                 }
                 else
                 {
@@ -633,7 +628,7 @@ namespace ACE.Server.WorldObjects
                         if (tempValueHolder.FindIndex(x => x.Key == wo.WeenieClassId) >= 0)
                         {
                             itemValue = 0;
-                            for (int i = 0; i < wo.StackSize; i++) // handle stackables
+                            for (int i = 0; i < (wo.StackSize ?? 1); i++) // handle stackables
                             {
                                 var tempValueHolderIndex = tempValueHolder.FindIndex(x => x.Key == wo.WeenieClassId);
                                 // create a transaction

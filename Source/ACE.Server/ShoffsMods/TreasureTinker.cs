@@ -100,23 +100,36 @@ namespace ACE.Server.ShoffsMods
 
             if (ThreadSafeRandom.Next(1, tinkChance.Denominator) > tinkChance.Numerator) return wo;
 
-
+            WorldObject tinkeredObject = null;
             switch (wo.ItemType)
             {
                 case ItemType.Armor:
                 case ItemType.Clothing when wo.ArmorLevel > 0:
-                    return ApplyArmorTinks(wo);
+                    tinkeredObject = ApplyArmorTinks(wo, player);
+                    break;
                 case ItemType.Caster:
-                    return ApplyCasterTinks(wo);
+                    tinkeredObject = ApplyCasterTinks(wo, player);
+                    break;
                 case ItemType.MissileWeapon:
-                    return ApplyMissileWeaponTinks(wo);
+                    tinkeredObject = ApplyMissileWeaponTinks(wo, player);
+                    break;
                 case ItemType.MeleeWeapon:
-                    return ApplyMeleeWeaponTinks(wo);
+                    tinkeredObject = ApplyMeleeWeaponTinks(wo, player);
+                    break;
                 case ItemType.Jewelry:
-                    return ApplyJewelryTinks(wo);
+                    tinkeredObject = ApplyJewelryTinks(wo, player);
+                    break;
                 default:
                     return wo;
             }
+            if (player != null)
+            {
+                if (tinkeredObject.GetImbuedEffects() != ImbuedEffectType.Undef)
+                    tinkeredObject.SetProperty(PropertyString.ImbuerName, player.Name);
+                if (tinkeredObject.NumTimesTinkered > 0)
+                    tinkeredObject.SetProperty(PropertyString.TinkerName, player.Name);
+            }
+            return tinkeredObject;
         }
 
         private WorldObject ApplyJewelryTinks(WorldObject jewelry, Player player = null)
@@ -127,11 +140,11 @@ namespace ACE.Server.ShoffsMods
                 int? tinksToApply = GetNumTinksToApply(jewelry);
                 int tinksLeft = tinksToApply ?? 0;
 
-                // 1% chance to get magic d, melee d, or missile d imbue
+                // chance to get vitality imbue
                 if (ThreadSafeRandom.Next(1, imbueJewelryChance.Denominator) <= imbueJewelryChance.Numerator && tinksLeft > 0)
                 {
                     WorldObject hematiteSalvage = GeneratePhantomSalvage(MaterialType.Hematite);
-                    RecipeManager.Tinkering_ModifyItem(player, hematiteSalvage, jewelry);
+                    RecipeManager.HandleRecipe(player, hematiteSalvage, jewelry, RecipeManager.GetRecipe(player, hematiteSalvage, jewelry), 1.0f);
                     tinksLeft--;
                 }
             }
@@ -147,11 +160,13 @@ namespace ACE.Server.ShoffsMods
         {
             try
             {
+                if (!armor.IsEnchantable) return armor; 
+
                 // get num of tinks to apply based on workmanshop
                 int? tinksToApply = GetNumTinksToApply(armor);
                 int tinksLeft = tinksToApply ?? 0;
 
-                // 1% chance to get magic d, melee d, or missile d imbue   
+                // chance to get magic d, melee d, or missile d imbue   
                 if (ThreadSafeRandom.Next(1, imbueArmorChance.Denominator) <= imbueArmorChance.Numerator && tinksLeft > 0)
                 {
                     switch (ThreadSafeRandom.Next(1, 3))
@@ -169,8 +184,8 @@ namespace ACE.Server.ShoffsMods
                             RecipeManager.Tinkering_ModifyItem(player, yellowTopazSalvage, armor);
                             break;
                     }
-                    tinksLeft--;
                 }
+                tinksLeft--; // if not imbued, leave one tink spot for an imbue
 
                 // add steel with remaining tinks
                 WorldObject steelSalvage = GeneratePhantomSalvage(MaterialType.Steel);
