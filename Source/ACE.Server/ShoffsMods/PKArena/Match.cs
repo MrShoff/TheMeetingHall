@@ -1,9 +1,11 @@
 using ACE.Entity;
+using ACE.Server.Entity.Chess;
 using ACE.Server.Managers;
 using ACE.Server.WorldObjects;
 using log4net;
 using System;
 using System.Collections.Generic;
+using System.Numerics;
 using System.Text;
 
 namespace ACE.Server.ShoffsMods.PKArena
@@ -19,6 +21,10 @@ namespace ACE.Server.ShoffsMods.PKArena
         public Team Winner { get; set; }
         public MatchLocation FightLocation { get; set; }
         public State CurrentState { get; set; } = State.InQueue;
+        public TimeSpan TimeLimit { get; set; } = TimeSpan.FromSeconds(1200);
+
+
+        private List<WorldObject> BarrierObjects;
 
         public TimeSpan? GetDuration()
         {
@@ -28,6 +34,42 @@ namespace ACE.Server.ShoffsMods.PKArena
             }
             else
                 return null;
+        }
+
+        public void SpawnBarriers()
+        {
+            BarrierObjects = new List<WorldObject>();
+            for(int i = 0; i < 8; i++)
+            {
+                var barrierObject = Factories.WorldObjectFactory.CreateNewWorldObject(29918); // Pack Gaerlan    8974); // Celdiseth's Portal Gem
+                barrierObject.Ethereal = true;
+                barrierObject.IgnoreCollisions = true;
+                barrierObject.Stuck = true;
+                barrierObject.TimeToRot = TimeLimit.TotalSeconds;
+
+                barrierObject.Location = new Position(FightLocation.MidPoint);
+                barrierObject.Location.RotationW = 1.0f - i * 0.25f; // 1.0, 0.75, 0.5, 0.25, 0, -0.25, -0.5, -0.75
+                barrierObject.Location.RotationZ = 1.0f - MathF.Abs(barrierObject.Location.RotationW); // 0, 0.25, 0.5, 0.75, 1, 0.75, 0.5, 0.25
+                barrierObject.Location = barrierObject.Location.InFrontOf(FightLocation.Radius, true);
+                barrierObject.Name = $"W:{MathF.Round(barrierObject.Location.RotationW, 1)}; Z:{MathF.Round(barrierObject.Location.RotationZ, 1)}";
+
+                var dir = Vector3.Normalize(barrierObject.Location.Pos - FightLocation.MidPoint.Pos);
+                barrierObject.Location.Rotate(dir);
+
+                barrierObject.EnterWorld();
+                BarrierObjects.Add(barrierObject);
+            }            
+        }
+
+        private void DestroyBarriers()
+        {
+            if (BarrierObjects != null)
+            {
+                foreach(var obj in BarrierObjects)
+                {
+                    obj.Destroy();
+                }
+            }
         }
 
         public List<PKArenaParticipant> GetAllParticipants()
@@ -52,14 +94,32 @@ namespace ACE.Server.ShoffsMods.PKArena
             return true;
         }
 
+        public void HandleMatchCompleted(bool? teamOneWon)
+        {
+            EndTime = DateTime.Now;
+            CurrentState = teamOneWon.HasValue ? State.Completed : State.Canceled;
+            FightLocation.InUse = false;
+
+            if (teamOneWon.HasValue)
+            {
+                if (TeamOne.Participants.Count == 1 && TeamTwo.Participants.Count == 1)
+                {
+                    ChessMatch.AdjustPlayerRanks(TeamOne.Participants[0].Player.Guid, TeamTwo.Participants[0].Player.Guid, teamOneWon.Value ? TeamOne.Participants[0].Player.Guid : TeamTwo.Participants[0].Player.Guid);
+                }
+            }
+
+            DestroyBarriers();
+        }
 
 
         public class MatchLocation
         {
             public Position TeamOnePos { get => GetTeamOnePos(); }
             public Position TeamTwoPos { get => GetTeamTwoPos(); }
+            public List<uint> ValidBlockCellIDs { get; set; }
             public bool InUse { get; set; } = false;
             public Position MidPoint { get; set; }
+            public float Radius { get; set; } = 15.0f;
 
             public MatchLocation(Position midPoint)
             {
@@ -69,7 +129,7 @@ namespace ACE.Server.ShoffsMods.PKArena
             private Position GetTeamOnePos()
             {
                 if (MidPoint == null) return null;
-                var pos = MidPoint.InFrontOf(8.0f);
+                var pos = MidPoint.InFrontOf(5.0f);
                 pos.RotationW = 0.0f;
                 pos.RotationZ = 1.0f; // W,Z --> (0.0, 1.0) = south; (-0.5, 0.5) = east; (0.5, 0.5) = west; (1.0, 0.0) = north
                 return new Position(pos);
@@ -78,18 +138,10 @@ namespace ACE.Server.ShoffsMods.PKArena
             private Position GetTeamTwoPos()
             {
                 if (MidPoint == null) return null;
-                var pos = MidPoint.InFrontOf(-8.0f, true);
+                var pos = MidPoint.InFrontOf(-5.0f);
                 pos.RotationW = 1.0f;
                 pos.RotationZ = 0.0f; // W,Z --> (0.0, 1.0) = south; (-0.5, 0.5) = east; (0.5, 0.5) = west; (1.0, 0.0) = north
                 return new Position(pos);
-            }
-
-            public List<uint> GetValidBlockCellIDs()
-            {
-                List<uint> validBlockCellIds = new List<uint>();
-                validBlockCellIds.Add(MidPoint.Cell);
-                validBlockCellIds.AddRange(GetAdjacentCells());
-                return validBlockCellIds;
             }
 
             public List<uint> GetAdjacentCells()

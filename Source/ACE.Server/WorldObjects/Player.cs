@@ -28,6 +28,7 @@ using ACE.Server.WorldObjects.Managers;
 
 using Character = ACE.Database.Models.Shard.Character;
 using MotionTable = ACE.DatLoader.FileTypes.MotionTable;
+using ACE.Server.ShoffsMods.PKArena;
 
 namespace ACE.Server.WorldObjects
 {
@@ -465,16 +466,21 @@ namespace ACE.Server.WorldObjects
         /// </summary>
         public bool LogOut(bool clientSessionTerminatedAbruptly = false, bool forceImmediate = false)
         {
+            var participant = MatchManager.TryGetInProgressParticipant(this);
+            if (participant != null)
+            {
+                participant.HandleDeath(null, null);
+            }
             if (PKLogoutActive && !forceImmediate)
             {
                 Session.Network.EnqueueSend(new GameEventWeenieError(Session, WeenieError.YouHaveBeenInPKBattleTooRecently));
-                Session.Network.EnqueueSend(new GameMessageSystemChat("Logging out in 20s...", ChatMessageType.Magic));
+                Session.Network.EnqueueSend(new GameMessageSystemChat("Logging out in 60s...", ChatMessageType.Magic));
 
                 if (!PKLogout)
                 {
                     PKLogout = true;
 
-                    LogoffTimestamp = Time.GetFutureUnixTime(PropertyManager.GetLong("pk_timer").Item);
+                    LogoffTimestamp = Time.GetFutureUnixTime(60);//PropertyManager.GetLong("pk_timer").Item);
                     PlayerManager.AddPlayerToLogoffQueue(this);
                 }
                 return false;

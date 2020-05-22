@@ -1,7 +1,9 @@
+using ACE.Entity;
 using ACE.Server.WorldObjects;
 using log4net;
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.Text;
 
 namespace ACE.Server.ShoffsMods.PKArena
@@ -11,7 +13,7 @@ namespace ACE.Server.ShoffsMods.PKArena
         private static readonly ILog log = LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
 
         public List<PKArenaParticipant> Participants { get; set; } = new List<PKArenaParticipant>();
-        public uint Rating { get; set; }
+        public uint Rating { get => GetTeamRating(); }
 
         public override bool Equals(object obj)
         {
@@ -33,6 +35,49 @@ namespace ACE.Server.ShoffsMods.PKArena
                 return true;
             }
             return false;
+        }
+
+        public uint GetMatchingIpCount(Team other)
+        {
+            uint count = 0;
+            foreach(var ip in from o in other.Participants select o.Player.Session.EndPoint.Address)
+            {
+                foreach(var myIp in from p in Participants select p.Player.Session.EndPoint.Address)
+                {
+                    if (myIp.Equals(ip))
+                    {
+                        count++;
+                    }
+                }
+            }
+            return count;
+        }
+
+        public List<ObjectGuid> GetOfflineMembers()
+        {
+            return Participants.Where(x => x.Player == null).Select(x => x.PlayerGuid).ToList();
+        }
+
+        private uint GetTeamRating()
+        {
+            uint rating = 0;
+            if (Participants.Count == 1)
+            {
+                Participants.ForEach(x => rating += (uint)(x.Player.ChessRank ?? 1400));
+            }
+            return rating;
+        }
+
+        public bool AllPlayersAcceptedQueue()
+        {
+            foreach (var participant in Participants)
+            {
+                if (!participant.AcceptedMatch)
+                {
+                    return false;
+                }
+            }
+            return true;
         }
     }
 }

@@ -18,38 +18,40 @@ namespace ACE.Server.WorldObjects
 {
     public class PKArenaParticipant
     {
-        public PlayerKillerStatus PriorPlayerKillerStatus { get; set; }
-        public PKLevel PriorPKLevel { get; set; }
         public Position PriorLocation { get; set; }
-        public uint PKArenaRating1 { get; set; } = 1400;
-        public uint PKArenaRating3 { get; set; } = 1400;
         public bool AcceptedQueue { get; set; } = false;
         public bool AcceptedMatch { get; set; } = false;
         public bool IsKilled { get; set; } = false;
-        public Player Player { get => PlayerManager.GetOnlinePlayer(PlayerGuid); }
+        public Player? Player { get => PlayerManager.GetOnlinePlayer(PlayerGuid); }
         public OfflinePlayer OfflinePlayer { get => PlayerManager.GetOfflinePlayer(PlayerGuid); }
+        public List<uint> Spectators { get; set; }
 
-        public DateTime LastConfirmationSent { get; set; }
 
 
-        private ObjectGuid PlayerGuid;
+        public ObjectGuid PlayerGuid;
+        private bool PlayerIsReturned = false;
 
         public PKArenaParticipant(ObjectGuid playerGuid)
         {
             PlayerGuid = playerGuid;
         }
+        
+        public void SetNpkStatus()
+        {
+            if (Player != null)
+            {
+                Player.PlayerKillerStatus = PlayerKillerStatus.NPK;
+                Player.EnqueueBroadcast(new GameMessagePublicUpdatePropertyInt(Player, PropertyInt.PlayerKillerStatus, (int)Player.PlayerKillerStatus));
+            }
+        }
 
         public void SetPklStatus()
         {
-
-            PriorPlayerKillerStatus = Player.PlayerKillerStatus;
-            PriorPKLevel = Player.PkLevel;
-
-            Player.PlayerKillerStatus = PlayerKillerStatus.PKLite;
-            Player.PkLevel = PKLevel.NPK;
-
-            Player.EnqueueBroadcast(new GameMessagePublicUpdatePropertyInt(Player, PropertyInt.PlayerKillerStatus, (int)Player.PlayerKillerStatus));
-            CommandHandlerHelper.WriteOutputInfo(Player.Session, $"Your current PK state is now set to: {Player.PlayerKillerStatus.ToString()}", ChatMessageType.Broadcast);
+            if (Player != null)
+            {
+                Player.PlayerKillerStatus = PlayerKillerStatus.PKLite;
+                Player.EnqueueBroadcast(new GameMessagePublicUpdatePropertyInt(Player, PropertyInt.PlayerKillerStatus, (int)Player.PlayerKillerStatus));
+            }
         }
 
         public void HandleDeath(DamageHistoryInfo lastDamager, DamageHistoryInfo topDamager)
@@ -57,50 +59,103 @@ namespace ACE.Server.WorldObjects
             IsKilled = true;
 
             MatchManager.HandleParticipantKilled(this);
-            ReturnPlayer();
+            if (!PlayerIsReturned)
+            {
+                ReturnPlayer();
+            }
+        }
+
+        public void HandleDraw()
+        {
+            if (Player != null)
+            {
+                Player.Session.Network.EnqueueSend(new GameMessageSystemChat($"Your PvP match ended in a draw.", ChatMessageType.Broadcast));
+                Player.Session.Network.EnqueueSend(new GameMessageSystemChat($"Your is unaffected.", ChatMessageType.Broadcast));
+            }
+            if (!PlayerIsReturned)
+            {
+                ReturnPlayer();
+            }
         }
 
         public void HandleWin()
-        {            
-            Player.Session.Network.EnqueueSend(new GameMessageSystemChat($"Congratulations! You won in the rated PvP arena!", ChatMessageType.Broadcast));
-
-            ReturnPlayer();
-            OnMatchConcluded();
+        {
+            if (Player != null)
+            {
+                Player.Session.Network.EnqueueSend(new GameMessageSystemChat($"Congratulations! You won in the PvP queue!", ChatMessageType.Broadcast));
+                Player.Session.Network.EnqueueSend(new GameMessageSystemChat($"Your new rating is {Player.ChessRank}.", ChatMessageType.Broadcast));
+            }
+            if (!PlayerIsReturned)
+            {
+                ReturnPlayer();
+            }
         }
 
         public void HandleDefeat()
         {
-            Player.Session.Network.EnqueueSend(new GameMessageSystemChat($"You have been defated in the rated PvP arena.", ChatMessageType.Broadcast));
-
-            OnMatchConcluded();
+            if (Player != null)
+            {
+                Player.Session.Network.EnqueueSend(new GameMessageSystemChat($"You have been defated in the PvP queue.", ChatMessageType.Broadcast));
+                Player.Session.Network.EnqueueSend(new GameMessageSystemChat($"Your new rating is {Player.ChessRank}.", ChatMessageType.Broadcast));
+            }
+            if (!PlayerIsReturned)
+            {
+                ReturnPlayer();
+            }
         }
 
         private void ReturnPlayer()
         {
-            Player.Session.Network.EnqueueSend(new GameMessageSystemChat("You are being transported back to your previous location.", ChatMessageType.Broadcast));
-
-            // wait for the death animation to finish
-            var dieChain = new ActionChain();
-            var animLength = DatManager.PortalDat.ReadFromDat<MotionTable>(Player.MotionTableId).GetAnimationLength(MotionCommand.Dead);
-            dieChain.AddDelaySeconds(animLength + 1.0f);
-
-            dieChain.AddAction(Player, () =>
+            IPlayer curPlayer;
+            if (Player == null)
             {
-                ThreadSafeTeleportOnDeath(); // enter portal space
+                curPlayer = OfflinePlayer;
+            }
+            else
+            {
+                curPlayer = Player;
+            }
 
-                Player.PlayerKillerStatus = PriorPlayerKillerStatus;
-                Player.PkLevel = PriorPKLevel;
-                Player.EnqueueBroadcast(new GameMessagePublicUpdatePropertyInt(Player, PropertyInt.PlayerKillerStatus, (int)Player.PlayerKillerStatus));
-                CommandHandlerHelper.WriteOutputInfo(Player.Session, $"Your current PK state is now reset to: {Player.PlayerKillerStatus.ToString()}", ChatMessageType.Broadcast);
+            // reset to normal player
+            int pkLevel = curPlayer.GetProperty(PropertyInt.PkLevelModifier) ?? 0;
+            curPlayer.SetProperty(PropertyInt.PlayerKillerStatus, (int)((PKLevel)pkLevel == PKLevel.PK ? PlayerKillerStatus.PK : PlayerKillerStatus.NPK));
+            curPlayer.SetProperty(PropertyBool.Attackable, true);
 
-                Player.IsBusy = false;
-            });
+            // move them back to where they were
+            if (Player != null)
+            {
+                Player.Session.Network.EnqueueSend(new GameMessageSystemChat("You are being transported back to your previous location.", ChatMessageType.Broadcast));
 
-            dieChain.EnqueueChain();
-        }
+                var dieChain = new ActionChain();
 
-        public void OnMatchConcluded()
-        {     
+                // wait for the death animation to finish
+                var animLength = DatManager.PortalDat.ReadFromDat<MotionTable>(Player.MotionTableId).GetAnimationLength(MotionCommand.Dead);
+                dieChain.AddDelaySeconds(animLength + 1.0f);
+
+                dieChain.AddAction(Player, () =>
+                {
+                    ThreadSafeTeleportOnDeath(); // enter portal space
+
+                    if (Player != null)
+                    {
+                        Player.EnqueueBroadcast(new GameMessagePublicUpdatePropertyInt(Player, PropertyInt.PlayerKillerStatus, (int)Player.PlayerKillerStatus));
+
+                        CommandHandlerHelper.WriteOutputInfo(Player.Session, $"Your current PK state is now reset to: {Player.PlayerKillerStatus.ToString()}", ChatMessageType.Broadcast);
+
+                        Player.IsBusy = false;
+                    }
+                });
+
+                dieChain.EnqueueChain();
+            }
+            else
+            {
+                if (PriorLocation != null)
+                {
+                    OfflinePlayer.Biota.SetPosition(PositionType.Location, new Position(PriorLocation), OfflinePlayer.BiotaDatabaseLock);
+                }
+            }
+            PlayerIsReturned = true;
         }
 
 

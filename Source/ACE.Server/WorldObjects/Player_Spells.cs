@@ -179,9 +179,10 @@ namespace ACE.Server.WorldObjects
             EquipDequipItemFromSet(item, spells, prevSpells);
         }
 
-        public void CreateSentinelBuffPlayers(IEnumerable<Player> players, bool self = false, ulong maxLevel = 8)
+        public void CreateSentinelBuffPlayers(IEnumerable<Player> players, bool self = false, ulong maxLevel = 8, IEnumerable<string> spellsToIgnore = null, bool bypassSentinelCheck = false)
         {
-            if (!(Session.AccessLevel >= AccessLevel.Sentinel)) return;
+            if (!(Session.AccessLevel >= AccessLevel.Sentinel) && !bypassSentinelCheck) return;
+            spellsToIgnore = spellsToIgnore ?? new List<string>();
 
             var SelfOrOther = self ? "Self" : "Other";
 
@@ -194,7 +195,7 @@ namespace ACE.Server.WorldObjects
             List<BuffMessage> buffMessages = new List<BuffMessage>();
             // prepare messages
             List<string> buffsNotImplementedYet = new List<string>();
-            foreach (var spell in Buffs)
+            foreach (var spell in Buffs.Where(x => !spellsToIgnore.Contains(x)))
             {
                 var spellNamPrefix = spell;
                 bool isBane = false;

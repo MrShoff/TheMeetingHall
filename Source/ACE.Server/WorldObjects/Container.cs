@@ -477,6 +477,15 @@ namespace ACE.Server.WorldObjects
         /// </summary>
         public bool TryAddToInventory(WorldObject worldObject, out Container container, int placementPosition = 0, bool limitToMainPackOnly = false, bool burdenCheck = true)
         {
+            if (this is Player duelist && duelist.Level == 300) // is a duelist character
+            {
+                if (worldObject.Name != "Duelist's Weeping Wand")
+                {
+                    container = null;
+                    return false;
+                }
+            }
+
             // bug: should be root owner
             if (this is Player player && burdenCheck)
             {
@@ -486,7 +495,6 @@ namespace ACE.Server.WorldObjects
                     return false;
                 }
             }
-
             IList<WorldObject> containerItems;
 
             if (worldObject.UseBackpackSlot)

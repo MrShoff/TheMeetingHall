@@ -490,7 +490,7 @@ namespace ACE.Server.Managers
                 ("allow_jump_loot", new Property<bool>(true, "enables retail behavior where a player can quickly loot items while jumping, bypassing the 'crouch down' animation")),
                 ("allow_pkl_bump", new Property<bool>(true, "enables retail behavior where /pkl checks for entry collisions, bumping the player position over if standing on another PKLite. This effectively enables /pkl door skipping from retail")),
                 ("assess_creature_mod", new Property<bool>(false, "(non-retail function) If enabled, re-enables former skill formula, when assess creature skill is not trained or spec'ed")),
-                ("chess_enabled", new Property<bool>(true, "if FALSE then chess will be disabled")),
+                ("chess_enabled", new Property<bool>(false, "if FALSE then chess will be disabled")),
                 ("client_movement_formula", new Property<bool>(false, "If enabled, server uses DoMotion/StopMotion self-client movement methods instead of apply_raw_movement")),
                 ("container_opener_name", new Property<bool>(true, "If enabled, when a player tries to open a container that is already in use by someone else, replaces 'someone else' in the message with the actual name of the player")), // modified
                 ("corpse_decay_tick_logging", new Property<bool>(false, "If ENABLED then player corpse ticks will be logged")),
@@ -540,6 +540,7 @@ namespace ACE.Server.Managers
                                                                  "if FALSE, players start with mastery of 1 melee and 1 ranged weapon type based on heritage, and can later re-select these 2 masteries")),
                 ("use_turbine_chat", new Property<bool>(true, "enables or disables global chat channels (General, LFG, Roleplay, Trade, Olthoi, Society, Allegience)")),
                 ("use_wield_requirements", new Property<bool>(true, "disable this to bypass wield requirements. mostly for dev debugging")),
+                ("disable_matching_same_ip", new Property<bool>(false, "if TRUE, participants in PvP Queue will not be matched against participants with the same IP")),
                 ("world_closed", new Property<bool>(false, "enable this to startup world as a closed to players world"))
                 );
 

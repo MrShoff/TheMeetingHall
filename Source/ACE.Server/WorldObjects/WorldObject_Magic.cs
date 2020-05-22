@@ -178,7 +178,7 @@ namespace ACE.Server.WorldObjects
         {
             var targetPlayer = target as Player;
             var targetCreature = target as Creature;
-
+            
             // ensure target is enchantable
             if (!target.IsEnchantable) return true;
 
@@ -224,6 +224,7 @@ namespace ACE.Server.WorldObjects
 
             if (targetCreature != null && caster != targetCreature && spell.NonComponentTargetType == ItemType.Creature && !caster.CanDamage(targetCreature))
                 return true;
+
 
             // Cannot cast Weapon Aura spells on targets that are not players or creatures
             if ((spell.MetaSpellType == SpellType.Enchantment) && (spell.School == MagicSchool.ItemEnchantment))

@@ -972,6 +972,9 @@ namespace ACE.Server.WorldObjects
 
         public void PK_DeathTick()
         {
+            if (MatchManager.TryGetInProgressParticipant(this) != null) // don't turn them red again during a fight
+                return;
+
             if (MinimumTimeSincePk == null || (PropertyManager.GetBool("pk_server_safe_training_academy").Item && RecallsDisabled))
                 return;
 

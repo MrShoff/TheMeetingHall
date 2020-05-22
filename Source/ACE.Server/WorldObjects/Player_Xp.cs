@@ -118,7 +118,7 @@ namespace ACE.Server.WorldObjects
         /// Handles updating the vitae penalty through earned XP
         /// </summary>
         /// <param name="amount">The amount of XP to apply to the vitae penalty</param>
-        private void UpdateXpVitae(long amount)
+        public void UpdateXpVitae(long amount)
         {
             var vitaePenalty = EnchantmentManager.GetVitae().StatModValue;
             var startPenalty = vitaePenalty;

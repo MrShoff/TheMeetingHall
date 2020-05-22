@@ -403,6 +403,8 @@ namespace ACE.Server.WorldObjects
         /// </summary>
         private List<WorldObject> GenerateTreasure(DamageHistoryInfo killer, Corpse corpse)
         {
+            if (killer.TryGetAttacker() is Player duelist && duelist.Level == 300) return new List<WorldObject>();
+
             var droppedItems = new List<WorldObject>();
 
             // create death treasure from loot generation factory

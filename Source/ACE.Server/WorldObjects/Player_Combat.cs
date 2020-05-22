@@ -13,6 +13,7 @@ using ACE.Server.Entity.Actions;
 using ACE.Server.Network.Enum;
 using ACE.Server.Network.GameEvent.Events;
 using ACE.Server.Network.GameMessages.Messages;
+using ACE.Server.ShoffsMods.PKArena;
 
 namespace ACE.Server.WorldObjects
 {
@@ -796,6 +797,11 @@ namespace ACE.Server.WorldObjects
 
         public override bool CanDamage(Creature target)
         {
+            if (target is Player pTarget && pTarget.IsPKL)
+            {
+                bool sameMatch = MatchManager.AreThesePlayersInTheSameInProgressMatch(this, pTarget);
+                if (sameMatch) return true;
+            }
             return target.Attackable && !target.Teleporting && !(target is CombatPet);
         }
 
@@ -903,7 +909,7 @@ namespace ACE.Server.WorldObjects
 
         public bool PKTimerActive => IsPKType && Time.GetUnixTime() - LastPkAttackTimestamp < PropertyManager.GetLong("pk_timer").Item;
 
-        public bool PKLogoutActive => IsPKType && Time.GetUnixTime() - LastPkAttackTimestamp < PKLogoffTimer.TotalSeconds;
+        public bool PKLogoutActive => IsPKType && Level >= 10 && Level <= 275;// && Time.GetUnixTime() - LastPkAttackTimestamp < PKLogoffTimer.TotalSeconds;
 
         public bool IsPKType => PlayerKillerStatus == PlayerKillerStatus.PK || PlayerKillerStatus == PlayerKillerStatus.PKLite;
 
