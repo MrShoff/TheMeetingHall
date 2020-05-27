@@ -132,6 +132,16 @@ namespace ACE.Server.ShoffsMods
             return tinkeredObject;
         }
 
+        private static void ApplyInscription(WorldObject item, Player p, string inscriptionText)
+        {
+            if (p == null) return;
+
+            item.Inscription += inscriptionText;
+            item.ScribeName = p.Name;
+            item.ScribeAccount = p.Account.AccountName;
+            item.ScribeIID = p.Guid.Full;
+        }
+
         private WorldObject ApplyJewelryTinks(WorldObject jewelry, Player player = null)
         {
             try
@@ -145,6 +155,7 @@ namespace ACE.Server.ShoffsMods
                 {
                     WorldObject hematiteSalvage = GeneratePhantomSalvage(MaterialType.Hematite);
                     RecipeManager.HandleRecipe(player, hematiteSalvage, jewelry, RecipeManager.GetRecipe(player, hematiteSalvage, jewelry), 1.0f);
+                    ApplyInscription(jewelry, player, $"IMBUED with {hematiteSalvage.Name}\n(this doesn't seem to work atm)");
                     tinksLeft--;
                 }
             }
@@ -174,26 +185,34 @@ namespace ACE.Server.ShoffsMods
                         case 1: // magic d imbue
                             WorldObject zirconSalvage = GeneratePhantomSalvage(MaterialType.Zircon);
                             RecipeManager.Tinkering_ModifyItem(player, zirconSalvage, armor);
+                            ApplyInscription(armor, player, $"IMBUED with {zirconSalvage.Name}\n");
                             break;
                         case 2: // melee d imbue
                             WorldObject peridotSalvage = GeneratePhantomSalvage(MaterialType.Peridot);
                             RecipeManager.Tinkering_ModifyItem(player, peridotSalvage, armor);
+                            ApplyInscription(armor, player, $"IMBUED with {peridotSalvage.Name}\n");
                             break;
                         case 3: // missile d imbue
                             WorldObject yellowTopazSalvage = GeneratePhantomSalvage(MaterialType.YellowTopaz);
                             RecipeManager.Tinkering_ModifyItem(player, yellowTopazSalvage, armor);
+                            ApplyInscription(armor, player, $"IMBUED with {yellowTopazSalvage.Name}\n");
                             break;
                     }
                 }
                 tinksLeft--; // if not imbued, leave one tink spot for an imbue
 
-                // add steel with remaining tinks
-                WorldObject steelSalvage = GeneratePhantomSalvage(MaterialType.Steel);
-                while (tinksLeft > 0)
+                if (tinksLeft > 0)
                 {
-                    RecipeManager.Tinkering_ModifyItem(player, steelSalvage, armor);
-                    tinksLeft--;
+                    // add steel with remaining tinks
+                    WorldObject steelSalvage = GeneratePhantomSalvage(MaterialType.Steel);
+                    ApplyInscription(armor, player, $"Tinked {tinksLeft}x with {steelSalvage.Name}");
+                    while (tinksLeft > 0)
+                    {
+                        RecipeManager.Tinkering_ModifyItem(player, steelSalvage, armor);
+                        tinksLeft--;
+                    }
                 }
+                
             }
             catch (Exception ex)
             {
@@ -251,21 +270,26 @@ namespace ACE.Server.ShoffsMods
                 }
 
                 // add brass or green garnet with the remaining tinks
-                WorldObject remainingTinksSalvage = null;
-                switch (ThreadSafeRandom.Next(1, 2))
+                if (tinksLeft > 0)
                 {
-                    case 1:
-                        remainingTinksSalvage = GeneratePhantomSalvage(MaterialType.Brass);
-                        break;
-                    case 2:
-                        remainingTinksSalvage = GeneratePhantomSalvage(MaterialType.GreenGarnet);
-                        break;
+                    WorldObject remainingTinksSalvage = null;
+                    switch (ThreadSafeRandom.Next(1, 2))
+                    {
+                        case 1:
+                            remainingTinksSalvage = GeneratePhantomSalvage(MaterialType.Brass);
+                            break;
+                        case 2:
+                            remainingTinksSalvage = GeneratePhantomSalvage(MaterialType.GreenGarnet);
+                            break;
+                    }
+                    ApplyInscription(caster, player, $"Tinked {tinksLeft}x with {remainingTinksSalvage.Name}");
+                    while (tinksLeft > 0)
+                    {
+                        RecipeManager.Tinkering_ModifyItem(player, remainingTinksSalvage, caster);
+                        tinksLeft--;
+                    }                    
                 }
-                while (tinksLeft > 0)
-                {
-                    RecipeManager.Tinkering_ModifyItem(player, remainingTinksSalvage, caster);
-                    tinksLeft--;
-                }
+                
             }
             catch (Exception ex)
             {
@@ -320,6 +344,7 @@ namespace ACE.Server.ShoffsMods
                         remainingTinksSalvage = GeneratePhantomSalvage(MaterialType.Brass);
                         break;
                 }
+                ApplyInscription(missileWeapon, player, $"Tinked {tinksLeft}x with {remainingTinksSalvage.Name}");
                 while (tinksLeft > 0)
                 {
                     RecipeManager.Tinkering_ModifyItem(player, remainingTinksSalvage, missileWeapon);
@@ -370,7 +395,7 @@ namespace ACE.Server.ShoffsMods
 
                 // add brass, velvet, or granite&iron with the remaining tinks
                 // TODO: set the ideal granite:iron ratio
-                WorldObject remainingTinksSalvage = GeneratePhantomSalvage(MaterialType.Brass);
+                WorldObject remainingTinksSalvage = null;
                 WorldObject remainingTinksSalvage2 = null;
                 switch (ThreadSafeRandom.Next(1, 3))
                 {
@@ -384,6 +409,15 @@ namespace ACE.Server.ShoffsMods
                         remainingTinksSalvage = GeneratePhantomSalvage(MaterialType.Granite);
                         remainingTinksSalvage2 = GeneratePhantomSalvage(MaterialType.Iron);
                         break;
+                }
+                if (remainingTinksSalvage2 != null)
+                {
+                    ApplyInscription(meleeWeapon, player, $"Tinked {Math.Round(tinksLeft / 2.0, MidpointRounding.AwayFromZero)}x with {remainingTinksSalvage.Name}");
+                    ApplyInscription(meleeWeapon, player, $" and {tinksLeft/2}x with {remainingTinksSalvage2.Name}");
+                }
+                else
+                {
+                    ApplyInscription(meleeWeapon, player, $"Tinked {tinksLeft}x with {remainingTinksSalvage.Name}");
                 }
                 while (tinksLeft > 0)
                 {
@@ -430,7 +464,7 @@ namespace ACE.Server.ShoffsMods
             }
         }
 
-        private static WorldObject GeneratePhantomSalvage(MaterialType materialType)
+        public static WorldObject GeneratePhantomSalvage(MaterialType materialType)
         {
             var wcid = (uint)Player.MaterialSalvage[(int)materialType];
             return WorldObjectFactory.CreateNewWorldObject(wcid);

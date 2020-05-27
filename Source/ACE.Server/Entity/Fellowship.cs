@@ -383,7 +383,7 @@ namespace ACE.Server.Entity
 
             var fellows = GetFellowshipMembers();
 
-            var allOver50 = !fellows.Values.Any(f => (f.Level ?? 1) < 50 || (f.Level ?? 1) == 300);            
+            var allOver50 = !fellows.Values.Any(f => (f.Level ?? 1) < 50 || (f.Level ?? 1) > 275);            
 
             if (allOver50)
             {

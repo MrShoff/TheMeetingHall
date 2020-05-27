@@ -285,7 +285,7 @@ namespace ACE.Server.WorldObjects
 
             if (Level > startingLevel)
             {
-                var message = (Level == maxLevel) ? $"You have reached the maximum level of {Level}!" : $"You are now level {Level}!";
+                var message = (Level == maxLevel) ? $"You have reached the maximum level of {Level}!\nYou can now use /enlighten!" : $"You are now level {Level}!";
 
                 message += (AvailableSkillCredits > 0) ? $"\nYou have {AvailableExperience:#,###0} experience points and {AvailableSkillCredits} skill credits available to raise skills and attributes." : $"\nYou have {AvailableExperience:#,###0} experience points available to raise skills and attributes.";
 

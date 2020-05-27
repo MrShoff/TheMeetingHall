@@ -180,7 +180,7 @@ namespace ACE.Server.WorldObjects
                     totalXP *= 1.0f + playerDamager.AugmentationBonusXp * 0.05f;
 
                 if (playerDamager.IsInDailyDungeon)
-                    totalXP *= 1.5f;
+                    totalXP *= 2.0f;
 
                 playerDamager.EarnXP((long)Math.Round(totalXP), XpType.Kill);
 
@@ -403,8 +403,6 @@ namespace ACE.Server.WorldObjects
         /// </summary>
         private List<WorldObject> GenerateTreasure(DamageHistoryInfo killer, Corpse corpse)
         {
-            if (killer.TryGetAttacker() is Player duelist && duelist.Level == 300) return new List<WorldObject>();
-
             var droppedItems = new List<WorldObject>();
 
             // create death treasure from loot generation factory

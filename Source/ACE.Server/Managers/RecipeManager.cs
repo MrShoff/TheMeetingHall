@@ -661,7 +661,11 @@ namespace ACE.Server.Managers
             if (IconUnderlay.TryGetValue(effect, out var icon))
             {
                 target.IconUnderlayId = icon;
-                if (player != null)
+                if (player == null)
+                {
+                    target.SetProperty(PropertyDataId.IconUnderlay, target.IconUnderlayId.Value);
+                }
+                else
                 {
                     player.Session.Network.EnqueueSend(new GameMessagePublicUpdatePropertyDataID(target, PropertyDataId.IconUnderlay, target.IconUnderlayId.Value));
                 }

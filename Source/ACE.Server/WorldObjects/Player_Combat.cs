@@ -802,7 +802,7 @@ namespace ACE.Server.WorldObjects
                 bool sameMatch = MatchManager.AreThesePlayersInTheSameInProgressMatch(this, pTarget);
                 if (sameMatch) return true;
             }
-            return target.Attackable && !target.Teleporting && !(target is CombatPet);
+            return target.Attackable && !target.Teleporting && !(target is CombatPet) && (Level < 276 || Level == 999);
         }
 
         // http://acpedia.org/wiki/Announcements_-_2002/04_-_Betrayal

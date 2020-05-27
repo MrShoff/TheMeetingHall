@@ -13,6 +13,7 @@ using ACE.Server.ShoffsMods.PKArena;
 using System;
 using System.Collections.Generic;
 using System.Text;
+using System.Threading;
 
 namespace ACE.Server.WorldObjects
 {
@@ -24,16 +25,18 @@ namespace ACE.Server.WorldObjects
         public bool IsKilled { get; set; } = false;
         public Player? Player { get => PlayerManager.GetOnlinePlayer(PlayerGuid); }
         public OfflinePlayer OfflinePlayer { get => PlayerManager.GetOfflinePlayer(PlayerGuid); }
-        public List<uint> Spectators { get; set; }
+        public List<ObjectGuid> Spectators { get; set; } = new List<ObjectGuid>();       
 
 
 
         public ObjectGuid PlayerGuid;
         private bool PlayerIsReturned = false;
+        private int PriorRating;
 
         public PKArenaParticipant(ObjectGuid playerGuid)
         {
             PlayerGuid = playerGuid;
+            PriorRating = Player.ChessRank ?? 1400;
         }
         
         public void SetNpkStatus()
@@ -70,7 +73,7 @@ namespace ACE.Server.WorldObjects
             if (Player != null)
             {
                 Player.Session.Network.EnqueueSend(new GameMessageSystemChat($"Your PvP match ended in a draw.", ChatMessageType.Broadcast));
-                Player.Session.Network.EnqueueSend(new GameMessageSystemChat($"Your is unaffected.", ChatMessageType.Broadcast));
+                Player.Session.Network.EnqueueSend(new GameMessageSystemChat($"Your rating is unaffected.", ChatMessageType.Broadcast));
             }
             if (!PlayerIsReturned)
             {
@@ -83,7 +86,10 @@ namespace ACE.Server.WorldObjects
             if (Player != null)
             {
                 Player.Session.Network.EnqueueSend(new GameMessageSystemChat($"Congratulations! You won in the PvP queue!", ChatMessageType.Broadcast));
-                Player.Session.Network.EnqueueSend(new GameMessageSystemChat($"Your new rating is {Player.ChessRank}.", ChatMessageType.Broadcast));
+                if (PriorRating != (Player.ChessRank ?? 1400))
+                {
+                    Player.Session.Network.EnqueueSend(new GameMessageSystemChat($"Your new rating is {Player.ChessRank} (+{Player.ChessRank - PriorRating}).", ChatMessageType.Broadcast));
+                }
             }
             if (!PlayerIsReturned)
             {
@@ -96,7 +102,10 @@ namespace ACE.Server.WorldObjects
             if (Player != null)
             {
                 Player.Session.Network.EnqueueSend(new GameMessageSystemChat($"You have been defated in the PvP queue.", ChatMessageType.Broadcast));
-                Player.Session.Network.EnqueueSend(new GameMessageSystemChat($"Your new rating is {Player.ChessRank}.", ChatMessageType.Broadcast));
+                if (PriorRating != (Player.ChessRank ?? 1400))
+                {
+                    Player.Session.Network.EnqueueSend(new GameMessageSystemChat($"Your new rating is {Player.ChessRank} ({Player.ChessRank - PriorRating}).", ChatMessageType.Broadcast));
+                }
             }
             if (!PlayerIsReturned)
             {
@@ -117,8 +126,15 @@ namespace ACE.Server.WorldObjects
             }
 
             // reset to normal player
-            int pkLevel = curPlayer.GetProperty(PropertyInt.PkLevelModifier) ?? 0;
-            curPlayer.SetProperty(PropertyInt.PlayerKillerStatus, (int)((PKLevel)pkLevel == PKLevel.PK ? PlayerKillerStatus.PK : PlayerKillerStatus.NPK));
+            if (curPlayer.Level > 275)
+            {
+                curPlayer.SetProperty(PropertyInt.PlayerKillerStatus, (int)PlayerKillerStatus.PK);
+            }
+            else
+            {
+                int pkLevel = curPlayer.GetProperty(PropertyInt.PkLevelModifier) ?? 0;
+                curPlayer.SetProperty(PropertyInt.PlayerKillerStatus, (int)((PKLevel)pkLevel == PKLevel.PK ? PlayerKillerStatus.PK : PlayerKillerStatus.NPK));
+            }
             curPlayer.SetProperty(PropertyBool.Attackable, true);
 
             // move them back to where they were
@@ -139,8 +155,6 @@ namespace ACE.Server.WorldObjects
                     if (Player != null)
                     {
                         Player.EnqueueBroadcast(new GameMessagePublicUpdatePropertyInt(Player, PropertyInt.PlayerKillerStatus, (int)Player.PlayerKillerStatus));
-
-                        CommandHandlerHelper.WriteOutputInfo(Player.Session, $"Your current PK state is now reset to: {Player.PlayerKillerStatus.ToString()}", ChatMessageType.Broadcast);
 
                         Player.IsBusy = false;
                     }

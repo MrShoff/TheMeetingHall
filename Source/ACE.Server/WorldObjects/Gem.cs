@@ -10,11 +10,15 @@ using ACE.Server.Factories;
 using ACE.Server.Network.GameEvent.Events;
 using ACE.Server.Network.GameMessages.Messages;
 using ACE.Server.Physics;
+using ACE.Server.ShoffsMods.PKArena;
+using log4net;
 
 namespace ACE.Server.WorldObjects
 {
     public class Gem : Stackable
     {
+        private static readonly ILog log = LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
+
         /// <summary>
         /// A new biota be created taking all of its values from weenie.
         /// </summary>

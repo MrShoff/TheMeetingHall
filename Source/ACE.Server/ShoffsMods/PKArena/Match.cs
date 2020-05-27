@@ -1,12 +1,18 @@
 using ACE.Entity;
+using ACE.Entity.Enum;
+using ACE.Entity.Models;
+using ACE.Entity.Enum.Properties;
 using ACE.Server.Entity.Chess;
 using ACE.Server.Managers;
+using ACE.Server.Network.GameMessages.Messages;
 using ACE.Server.WorldObjects;
 using log4net;
 using System;
 using System.Collections.Generic;
+using System.Drawing;
 using System.Numerics;
 using System.Text;
+using System.Threading;
 
 namespace ACE.Server.ShoffsMods.PKArena
 {
@@ -20,11 +26,19 @@ namespace ACE.Server.ShoffsMods.PKArena
         public DateTime EndTime { get; set; }
         public Team Winner { get; set; }
         public MatchLocation FightLocation { get; set; }
-        public State CurrentState { get; set; } = State.InQueue;
+        public State CurrentState { get; set; } = State.InvitePending;
         public TimeSpan TimeLimit { get; set; } = TimeSpan.FromSeconds(1200);
 
 
+        private Dictionary<ObjectGuid, Position> SpectatorsAndTheirPriorLocation;
+
         private List<WorldObject> BarrierObjects;
+
+        public bool IsPlayerSpectator(ObjectGuid pGuid)
+        {
+            if (SpectatorsAndTheirPriorLocation == null) return false;
+            return SpectatorsAndTheirPriorLocation.ContainsKey(pGuid);
+        }
 
         public TimeSpan? GetDuration()
         {
@@ -36,29 +50,125 @@ namespace ACE.Server.ShoffsMods.PKArena
                 return null;
         }
 
+        public float GetBarrierRadius()
+        {
+            return GetAllParticipants().Count > 2 ? FightLocation.Radius * 2.0f : FightLocation.Radius;
+        }
+
         public void SpawnBarriers()
         {
-            BarrierObjects = new List<WorldObject>();
-            for(int i = 0; i < 8; i++)
+            uint numBarrierObjects = 18;
+            float barrierRadius = GetBarrierRadius();
+
+            // determine barrier guardians based on max participant rating
+            uint maxRating = GetMaxParticipantRating();
+            List<uint> packDolls = new List<uint>();
+            List<uint> wisps = new List<uint>();
+            switch (maxRating)
             {
-                var barrierObject = Factories.WorldObjectFactory.CreateNewWorldObject(29918); // Pack Gaerlan    8974); // Celdiseth's Portal Gem
-                barrierObject.Ethereal = true;
-                barrierObject.IgnoreCollisions = true;
-                barrierObject.Stuck = true;
-                barrierObject.TimeToRot = TimeLimit.TotalSeconds;
+                case var r when r >= 1800:
+                    packDolls.AddRange(new uint[] { 29918, 29916, 29917 }); // Gaerlan, Asheron, Bael'Zharon
+                    wisps.AddRange(new uint[] { 35059 }); // Red Wisp
+                    break;
+                case var r when r >= 1600:
+                    packDolls.AddRange(new uint[] { 35296 }); // Pack Tower Guardian 
+                    wisps.AddRange(new uint[] { 35059 }); // Red Wisp
+                    break;
+                case var r when r >= 1400:
+                    packDolls.AddRange(new uint[] { 9169 }); // Plush Tusker
+                    wisps.AddRange(new uint[] { 35090 }); // Blue Wisp
+                    break;
+                case var r when r >= 1200:
+                    packDolls.AddRange(new uint[] { 9172 }); // Pack Drudge
+                    wisps.AddRange(new uint[] { 35089 }); // Green Wisp
+                    break;
+                case var r when r < 1200:
+                    packDolls.AddRange(new uint[] { 32794 }); // Rare Pink Pack Idol
+                    wisps.AddRange(new uint[] { 35089 }); // Green Wisp
+                    break;
+            }
 
-                barrierObject.Location = new Position(FightLocation.MidPoint);
-                barrierObject.Location.RotationW = 1.0f - i * 0.25f; // 1.0, 0.75, 0.5, 0.25, 0, -0.25, -0.5, -0.75
-                barrierObject.Location.RotationZ = 1.0f - MathF.Abs(barrierObject.Location.RotationW); // 0, 0.25, 0.5, 0.75, 1, 0.75, 0.5, 0.25
-                barrierObject.Location = barrierObject.Location.InFrontOf(FightLocation.Radius, true);
-                barrierObject.Name = $"W:{MathF.Round(barrierObject.Location.RotationW, 1)}; Z:{MathF.Round(barrierObject.Location.RotationZ, 1)}";
 
-                var dir = Vector3.Normalize(barrierObject.Location.Pos - FightLocation.MidPoint.Pos);
-                barrierObject.Location.Rotate(dir);
+            BarrierObjects = new List<WorldObject>();
+            for (int i = 0; i < numBarrierObjects; i++)
+            {
+                uint pdWcid = packDolls.Count == 1 ? packDolls[0] : packDolls[i % packDolls.Count];
+                var packDoll = Factories.WorldObjectFactory.CreateNewWorldObject(pdWcid);
+                var wisp = Factories.WorldObjectFactory.CreateNewWorldObject(pdWcid);
 
-                barrierObject.EnterWorld();
-                BarrierObjects.Add(barrierObject);
-            }            
+                uint wispWcid = wisps.Count == 1 ? wisps[0] : wisps[i % wisps.Count];
+                var wispObject = Factories.WorldObjectFactory.CreateNewWorldObject(wispWcid);
+                wisp.SetupTableId = wispObject.SetupTableId;
+                wispObject.Destroy();
+
+                // set barrier object properties
+                packDoll.Ethereal = true;
+                packDoll.IgnoreCollisions = true;
+                packDoll.Stuck = true;
+                packDoll.TimeToRot = TimeLimit.TotalSeconds;
+                packDoll.Name = "Barrier Guardian";
+
+                wisp.Ethereal = true;
+                wisp.IgnoreCollisions = true;
+                wisp.Stuck = true;
+                wisp.TimeToRot = TimeLimit.TotalSeconds;
+                wisp.GravityStatus = false;
+                wisp.SetProperty(PropertyString.LongDesc, "");
+                wisp.SetProperty(PropertyInt.Mass, 0);
+                wisp.Name = "Barrier Guardian";
+
+                // set locations
+                packDoll.Location = new Position(FightLocation.MidPoint);
+                wisp.Location = new Position(FightLocation.MidPoint);
+
+                var angle = i / (float)numBarrierObjects * 360.0f;
+                var xy = PointOnCircle(barrierRadius, angle, new PointF(FightLocation.MidPoint.PositionX, FightLocation.MidPoint.PositionY));
+
+                packDoll.Location.PositionX = xy.X;
+                packDoll.Location.PositionY = xy.Y;
+                wisp.Location.PositionX = xy.X;
+                wisp.Location.PositionY = xy.Y;
+                wisp.Location.PositionZ += 1.5f;
+
+                // face middle
+                var dir = Vector3.Normalize(packDoll.Location.Pos - FightLocation.MidPoint.Pos);
+                packDoll.Location.Rotate(dir);
+                wisp.Location.Rotate(dir);
+
+                // place in world
+                packDoll.EnterWorld();
+                wisp.EnterWorld();
+                BarrierObjects.Add(packDoll);
+                BarrierObjects.Add(wisp);
+            }
+        }
+
+        private uint GetMaxParticipantRating()
+        {
+            uint maxRating = 0;
+            GetAllParticipants().ForEach(x => maxRating = (x.Player.ChessRank ?? 1400) > maxRating ? (uint)(x.Player.ChessRank ?? 1400) : maxRating);
+            return maxRating;
+        }
+
+        public void AddSpectator(Player p)
+        {
+            if (p != null)
+            {
+                if (SpectatorsAndTheirPriorLocation == null)
+                    SpectatorsAndTheirPriorLocation = new Dictionary<ObjectGuid, Position>();
+                SpectatorsAndTheirPriorLocation.Add(p.Guid, p.Location);
+
+                WorldManager.ThreadSafeTeleport(p, new Position(FightLocation.MidPoint));
+            }
+        }
+
+        public static PointF PointOnCircle(float radius, float angleInDegrees, PointF origin)
+        {
+            // Convert from degrees to radians via multiplication by PI/180        
+            float x = (float)(radius * Math.Cos(angleInDegrees * Math.PI / 180F)) + origin.X;
+            float y = (float)(radius * Math.Sin(angleInDegrees * Math.PI / 180F)) + origin.Y;
+
+            return new PointF(x, y);
         }
 
         private void DestroyBarriers()
@@ -67,7 +177,10 @@ namespace ACE.Server.ShoffsMods.PKArena
             {
                 foreach(var obj in BarrierObjects)
                 {
-                    obj.Destroy();
+                    if (!obj.IsDestroyed)
+                    {
+                        obj.Destroy();
+                    }
                 }
             }
         }
@@ -97,21 +210,66 @@ namespace ACE.Server.ShoffsMods.PKArena
         public void HandleMatchCompleted(bool? teamOneWon)
         {
             EndTime = DateTime.Now;
-            CurrentState = teamOneWon.HasValue ? State.Completed : State.Canceled;
             FightLocation.InUse = false;
 
             if (teamOneWon.HasValue)
             {
-                if (TeamOne.Participants.Count == 1 && TeamTwo.Participants.Count == 1)
+                bool DisableMatchingSameIp = PropertyManager.GetBool("disable_matching_same_ip").Item;
+                if (TeamOne.Participants.Count == 1 && TeamTwo.Participants.Count == 1 && (!DisableMatchingSameIp || TeamOne.GetMatchingIpCount(TeamTwo) == 0))
                 {
-                    ChessMatch.AdjustPlayerRanks(TeamOne.Participants[0].Player.Guid, TeamTwo.Participants[0].Player.Guid, teamOneWon.Value ? TeamOne.Participants[0].Player.Guid : TeamTwo.Participants[0].Player.Guid);
+                    ChessMatch.AdjustPlayerRanks(TeamOne.Participants[0].PlayerGuid, TeamTwo.Participants[0].PlayerGuid, teamOneWon.Value ? TeamOne.Participants[0].PlayerGuid : TeamTwo.Participants[0].PlayerGuid);
+                }
+            }
+
+            if (SpectatorsAndTheirPriorLocation != null)
+            {
+                Thread.Sleep(2000);
+                foreach(var spec in SpectatorsAndTheirPriorLocation)
+                {
+                    var player = PlayerManager.GetOnlinePlayer(spec.Key);
+                    if (player != null)
+                    {
+                        WorldManager.ThreadSafeTeleport(player, new Position(spec.Value));
+                        player.Session.Network.EnqueueSend(new GameMessageSystemChat("You are being transported back to your previous location.", ChatMessageType.Broadcast));
+                    }
+                    else
+                    {
+                        var offlinePlayer = PlayerManager.GetOfflinePlayer(spec.Key);
+                        offlinePlayer.Biota.SetPosition(PositionType.Location, new Position(spec.Value), offlinePlayer.BiotaDatabaseLock);
+                    }
                 }
             }
 
             DestroyBarriers();
+
+            if (teamOneWon.HasValue)
+            {
+                foreach (var participant in TeamOne.Participants)
+                {
+                    if (teamOneWon.Value)
+                        participant.HandleWin();
+                    else
+                        participant.HandleDefeat();
+                }
+                foreach (var participant in TeamTwo.Participants)
+                {
+                    if (teamOneWon.Value)
+                        participant.HandleWin();
+                    else
+                        participant.HandleDefeat();
+                }
+            }
+            else
+            {
+                foreach (var participant in GetAllParticipants())
+                {
+                    participant.HandleDraw();
+                }
+            }
+
+            CurrentState = teamOneWon.HasValue ? State.Completed : State.Canceled;
         }
-
-
+        
         public class MatchLocation
         {
             public Position TeamOnePos { get => GetTeamOnePos(); }
@@ -119,11 +277,28 @@ namespace ACE.Server.ShoffsMods.PKArena
             public List<uint> ValidBlockCellIDs { get; set; }
             public bool InUse { get; set; } = false;
             public Position MidPoint { get; set; }
-            public float Radius { get; set; } = 15.0f;
+            public float Radius { get; set; } = 18.0f;
+            public LocationType Type { get; set; }
+            public string Description { get; set; }
 
-            public MatchLocation(Position midPoint)
+            public enum LocationType
+            {
+                OneOnOne    = 0x01,
+                Team        = 0x02
+            }
+
+            public MatchLocation(Position midPoint, LocationType type, string description)
             {
                 MidPoint = midPoint;
+                Description = description;
+                if (type == LocationType.OneOnOne)
+                {
+                    Type = LocationType.OneOnOne | LocationType.Team;
+                }
+                else
+                {
+                    Type = type;
+                }
             }
 
             private Position GetTeamOnePos()
@@ -224,7 +399,7 @@ namespace ACE.Server.ShoffsMods.PKArena
 
         public enum State
         {
-            InQueue,
+            InvitePending,
             InProgress,
             Completed,
             Canceled

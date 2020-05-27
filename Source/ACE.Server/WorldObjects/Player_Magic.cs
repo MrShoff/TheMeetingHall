@@ -956,7 +956,6 @@ namespace ACE.Server.WorldObjects
 
             // get casting pre-check status
             var castingPreCheckStatus = GetCastingPreCheckStatus(spell, magicSkill, isWeaponSpell);
-            castingPreCheckStatus = Level == 300 && castingPreCheckStatus != CastingPreCheckStatus.InvalidPKStatus ? CastingPreCheckStatus.Success : castingPreCheckStatus;
 
             // calculate mana usage
             if (!CalculateManaUsage(castingPreCheckStatus, spell, target, isWeaponSpell, out var manaUsed))

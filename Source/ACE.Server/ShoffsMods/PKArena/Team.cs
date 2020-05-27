@@ -10,10 +10,8 @@ namespace ACE.Server.ShoffsMods.PKArena
 {
     public class Team
     {
-        private static readonly ILog log = LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
-
         public List<PKArenaParticipant> Participants { get; set; } = new List<PKArenaParticipant>();
-        public uint Rating { get => GetTeamRating(); }
+        public bool DoFellowship { get; set; } = false;
 
         public override bool Equals(object obj)
         {
@@ -72,7 +70,7 @@ namespace ACE.Server.ShoffsMods.PKArena
         {
             foreach (var participant in Participants)
             {
-                if (!participant.AcceptedMatch)
+                if (!participant.AcceptedQueue)
                 {
                     return false;
                 }

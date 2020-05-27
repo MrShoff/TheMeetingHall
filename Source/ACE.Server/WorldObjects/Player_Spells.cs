@@ -45,7 +45,7 @@ namespace ACE.Server.WorldObjects
             return Biota.TryRemoveKnownSpell((int)spellId, BiotaDatabaseLock);
         }
 
-        public void LearnSpellWithNetworking(uint spellId, bool uiOutput = true)
+        public void LearnSpellWithNetworking(uint spellId, bool uiOutput = true, bool spellKnownOutput = true)
         {
             var spells = DatManager.PortalDat.SpellTable;
 
@@ -58,8 +58,11 @@ namespace ACE.Server.WorldObjects
 
             if (!AddKnownSpell(spellId))
             {
-                GameMessageSystemChat errorMessage = new GameMessageSystemChat("That spell is already known", ChatMessageType.Broadcast);
-                Session.Network.EnqueueSend(errorMessage);
+                if (spellKnownOutput)
+                {
+                    GameMessageSystemChat errorMessage = new GameMessageSystemChat("That spell is already known", ChatMessageType.Broadcast);
+                    Session.Network.EnqueueSend(errorMessage);
+                }
                 return;
             }
 

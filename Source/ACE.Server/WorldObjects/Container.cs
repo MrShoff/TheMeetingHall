@@ -15,6 +15,9 @@ using ACE.Server.Managers;
 using ACE.Server.Network.GameMessages.Messages;
 using ACE.Server.Network.GameEvent.Events;
 using ACE.Server.Network.GameMessages;
+using ACE.Server.Entity;
+using System.Threading.Tasks;
+using System.Threading;
 
 namespace ACE.Server.WorldObjects
 {
@@ -477,13 +480,42 @@ namespace ACE.Server.WorldObjects
         /// </summary>
         public bool TryAddToInventory(WorldObject worldObject, out Container container, int placementPosition = 0, bool limitToMainPackOnly = false, bool burdenCheck = true)
         {
-            if (this is Player duelist && duelist.Level == 300) // is a duelist character
+            bool mutateItem = false;
+            if (this is Player mutant && mutant.Level >= 300 && mutant.Level < 999) // special rules for mutants
             {
-                if (worldObject.Name != "Duelist's Weeping Wand")
+                //  -- only items that can be used cosmetically or are made for mutant use only should be accepted --
+                // make sure its mutant-only use
+                if (!(worldObject is Ammunition))
                 {
-                    container = null;
-                    return false;
+                    if (!((worldObject.WieldDifficulty >= 300 && worldObject.WieldRequirements == WieldRequirement.Level) || (worldObject.Attuned == AttunedStatus.Attuned && worldObject.Bonded == BondedStatus.Bonded)))
+                    {
+                        log.Info("-------------1");
+                        // or cosmetic items, otherwise reject
+                        //   check to see if its already tailor kitted
+                        //   if its not, mutate it
+                        if (!(worldObject is Gem) || !worldObject.IconOverlayId.HasValue || worldObject.IconOverlayId.Value != 100667895)
+                        {
+                            var wcid = Tailoring.GetArmorWCID(worldObject.ValidLocations ?? 0);
+                            if (wcid != null)
+                            {
+                                mutateItem = true;
+                            }
+                            else
+                            {
+                                if (mutant.Level == 500 && (worldObject is Caster || worldObject is MeleeWeapon || worldObject is MissileLauncher))
+                                {
+                                    mutateItem = true;
+                                }
+                                else
+                                {
+                                    container = null;
+                                    return false;
+                                }
+                            }
+                        }
+                    }
                 }
+                
             }
 
             // bug: should be root owner
@@ -564,7 +596,26 @@ namespace ACE.Server.WorldObjects
 
             OnAddItem();
 
+            if (mutateItem)
+            {
+                Task.Factory.StartNew(() => MutateItem(worldObject, this as Player));
+            }
+
             return true;
+        }
+
+        private void MutateItem(WorldObject worldObject, Player mutant)
+        {
+            // wait a second to start
+            Thread.Sleep(250);
+            ItemMutator.DoMutation(mutant, worldObject); 
+            if (mutant.Session != null)
+            {
+                log.Info("4");
+                mutant.Session.Network.EnqueueSend(new GameMessageSystemChat($"You mutated the {worldObject.Name}.", ChatMessageType.Broadcast));
+            }
+            
+            log.Info("6");
         }
 
         /// <summary>

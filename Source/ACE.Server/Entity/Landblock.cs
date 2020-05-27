@@ -617,43 +617,50 @@ namespace ACE.Server.Entity
 
         private void ProcessPendingWorldObjectAdditionsAndRemovals()
         {
-            if (pendingAdditions.Count > 0)
+            try
             {
-                foreach (var kvp in pendingAdditions)
+                if (pendingAdditions.Count > 0)
                 {
-                    worldObjects[kvp.Key] = kvp.Value;
-
-                    if (kvp.Value is Player player)
-                        players.Add(player);
-                    else if (kvp.Value is Creature creature)
-                        sortedCreaturesByNextTick.AddLast(creature);
-
-                    InsertWorldObjectIntoSortedHeartbeatList(kvp.Value);
-                    InsertWorldObjectIntoSortedGeneratorUpdateList(kvp.Value);
-                    InsertWorldObjectIntoSortedGeneratorRegenerationList(kvp.Value);
-                }
-
-                pendingAdditions.Clear();
-            }
-
-            if (pendingRemovals.Count > 0)
-            {
-                foreach (var objectGuid in pendingRemovals)
-                {
-                    if (worldObjects.Remove(objectGuid, out var wo))
+                    foreach (var kvp in pendingAdditions)
                     {
-                        if (wo is Player player)
-                            players.Remove(player);
-                        else if (wo is Creature creature)
-                            sortedCreaturesByNextTick.Remove(creature);
+                        worldObjects[kvp.Key] = kvp.Value;
 
-                        sortedWorldObjectsByNextHeartbeat.Remove(wo);
-                        sortedGeneratorsByNextGeneratorUpdate.Remove(wo);
-                        sortedGeneratorsByNextRegeneration.Remove(wo);
+                        if (kvp.Value is Player player)
+                            players.Add(player);
+                        else if (kvp.Value is Creature creature)
+                            sortedCreaturesByNextTick.AddLast(creature);
+
+                        InsertWorldObjectIntoSortedHeartbeatList(kvp.Value);
+                        InsertWorldObjectIntoSortedGeneratorUpdateList(kvp.Value);
+                        InsertWorldObjectIntoSortedGeneratorRegenerationList(kvp.Value);
                     }
+
+                    pendingAdditions.Clear();
                 }
+
+                if (pendingRemovals.Count > 0)
+                {
+                    foreach (var objectGuid in pendingRemovals)
+                    {
+                        if (worldObjects.Remove(objectGuid, out var wo))
+                        {
+                            if (wo is Player player)
+                                players.Remove(player);
+                            else if (wo is Creature creature)
+                                sortedCreaturesByNextTick.Remove(creature);
+
+                            sortedWorldObjectsByNextHeartbeat.Remove(wo);
+                            sortedGeneratorsByNextGeneratorUpdate.Remove(wo);
+                            sortedGeneratorsByNextRegeneration.Remove(wo);
+                        }
+                    }
 
                 pendingRemovals.Clear();
+                }
+            }
+            catch (Exception ex)
+            {
+                log.Error(ex); // I put this here due to: InvalidOperationException: Collection was modified; enumeration may not execute.
             }
         }
 

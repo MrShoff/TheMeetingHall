@@ -1,5 +1,7 @@
+using ACE.Common;
 using ACE.Entity;
 using ACE.Entity.Enum;
+using ACE.Server.Command.Handlers;
 using ACE.Server.Managers;
 using ACE.Server.Network.GameMessages.Messages;
 using ACE.Server.WorldObjects;
@@ -16,20 +18,15 @@ namespace ACE.Server.ShoffsMods.PKArena
     public class Queue
     {
         private static readonly ILog log = LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
-        private bool DisableMatchingSameIp = PropertyManager.GetBool("disable_matching_same_ip").Item;
+        public bool DoTeamMatchmaking { get; set; } = false;
 
+
+        private bool DisableMatchingSameIp = PropertyManager.GetBool("disable_matching_same_ip").Item;
         // entrant holder
         private List<Entrant> queue = new List<Entrant>();
 
-        // globals for finding next match
-        private bool matchWatcherIsRunning = false;
-        private static readonly TimeSpan MaxWaitTime = TimeSpan.FromMinutes(5);
-        private static readonly TimeSpan MinRematchTime = TimeSpan.FromMinutes(10);
-        public List<Match> recentMatchups = new List<Match>();        
-
         public bool Dequeue(ObjectGuid requestorGuid)
         {
-            log.Info($"[Dequeue.Start] queue.Count:{queue.Count}");
             bool dequeueableFound = false;
             var requestor = PlayerManager.FindByGuid(requestorGuid);
             foreach (var entrant in queue)
@@ -53,7 +50,6 @@ namespace ACE.Server.ShoffsMods.PKArena
                             {
                                 var msg = $"[PvP Queue] {requestorName} has removed your team from the queue.";
                                 participant.Player.Session.Network.EnqueueSend(new GameMessageSystemChat(msg, ChatMessageType.Broadcast));
-                                log.Info(msg);
                             }
                         }
                         queue.Remove(entrant);
@@ -62,14 +58,12 @@ namespace ACE.Server.ShoffsMods.PKArena
                 }
                 if (dequeueableFound) break;
             }
-            log.Info($"[Dequeue.End] dequeueableFound:{dequeueableFound}");
-            log.Info($"[Dequeue.End] queue.Count:{queue.Count}");
             return dequeueableFound;
         }
 
         public bool Enqueue(Team team)
         {
-            log.Info($"[Enqueue.Start] queue.Count:{queue.Count}");
+            RemoveOfflineParticipants();
             var allPlayersInQueue = GetAllParticipantGuids();
             PKArenaParticipant playerInQueue = null;
             foreach(var participant in team.Participants)
@@ -87,12 +81,18 @@ namespace ACE.Server.ShoffsMods.PKArena
                 {
                     if (participant.Player != null)
                     {
-                        participant.Player.Session.Network.EnqueueSend(new GameMessageSystemChat($"[PvP Queue] You have been queued for a rated pk fight. You will get a confirmation pop-up when your match is ready.", ChatMessageType.Broadcast));
+                        participant.Player.Session.Network.EnqueueSend(new GameMessageSystemChat($"[PvP Queue] You have been queued for a fight. You will get a confirmation pop-up when your match is ready.", ChatMessageType.Broadcast));
                         
                     }
-                }                
-                if (!matchWatcherIsRunning)
-                    Task.Factory.StartNew(WatchForMatchup);
+                }
+                if (DoTeamMatchmaking)
+                {
+                    HandleTeamMatchmaking();
+                }
+                else
+                {
+                    CheckForValidMatchup();
+                }
             }
             else
             {
@@ -104,18 +104,15 @@ namespace ACE.Server.ShoffsMods.PKArena
                     }
                 }
             }
-
-            log.Info($"[Enqueue.End] queue.Count:{queue.Count}");
             return playerInQueue == null;
         }
 
-        private List<ObjectGuid> GetAllParticipantGuids()
+        public List<ObjectGuid> GetAllParticipantGuids()
         {
-            RemoveOfflineParticipants();
             List<ObjectGuid> participants = new List<ObjectGuid>();
             (from t in queue select t.Team.Participants)
                 .ToList() // list of all participant groups
-                .ForEach(t => t.ForEach(p => participants.Add(p.PlayerGuid))); // for each participanshutdt group, add their player's guids
+                .ForEach(t => t.ForEach(p => participants.Add(p.PlayerGuid))); // for each participant group, add their player's guids
             return participants;
         }
 
@@ -126,7 +123,6 @@ namespace ACE.Server.ShoffsMods.PKArena
 
             foreach(var pGuid in offlinePlayerGuids)
             {
-                log.Info("Offline player in queue detected. Attempting to remove.");
                 Dequeue(pGuid);
             }
         }
@@ -136,38 +132,27 @@ namespace ACE.Server.ShoffsMods.PKArena
             QueuePop?.Invoke(this, e);
         }
 
-        private void WatchForMatchup()
+        private void CheckForValidMatchup()
         {
-            log.Info($"WatchForMatchup started");
-            matchWatcherIsRunning = true;
             Team teamOne = null;
             Team teamTwo = null;
 
-            uint teamsWithDistinctIps = GetDistinctIpCount();
-
-            while(teamsWithDistinctIps > 1)
+            foreach(var entrant in from t in queue orderby t.TimeEnqueued select t)
             {
-                foreach(var entrant in from t in queue orderby t.TimeEnqueued select t)
+                foreach(var opponent in from t in queue where !t.Team.Equals(entrant.Team) orderby t.TimeEnqueued select t)
                 {
-                    foreach(var opponent in from t in queue where !t.Team.Equals(entrant.Team) orderby t.TimeEnqueued select t)
+                    if (!DisableMatchingSameIp || entrant.Team.Participants.Count > 1 || entrant.Team.GetMatchingIpCount(opponent.Team) == 0)
                     {
-                        if (!DisableMatchingSameIp || entrant.Team.GetMatchingIpCount(opponent.Team) == 0)
-                        {
-                            teamOne = entrant.Team;
-                            teamTwo = opponent.Team;
-                            queue.Remove(entrant);
-                            queue.Remove(opponent);
-                            break;
-                        }
-                    }
-                    if (teamOne != null && teamTwo != null)
+                        teamOne = entrant.Team;
+                        teamTwo = opponent.Team;
+                        queue.Remove(entrant);
+                        queue.Remove(opponent);
                         break;
+                    }
                 }
                 if (teamOne != null && teamTwo != null)
                     break;
-                Thread.Sleep(15000);
-                teamsWithDistinctIps = GetDistinctIpCount();
-            }
+            }            
 
             if (teamOne != null && teamTwo != null)
             {
@@ -178,35 +163,101 @@ namespace ACE.Server.ShoffsMods.PKArena
                 };
                 OnQueuePop(e);
             }
-            matchWatcherIsRunning = false;
-            log.Info($"WatchForMatchup ended");
         }
 
-        private uint GetDistinctIpCount()
+        private void HandleTeamMatchmaking()
         {
-            uint count = 0;
-            if (DisableMatchingSameIp)
+            List<Team> availableTeams = new List<Team>();
+            availableTeams.AddRange(queue.Select(x => x.Team));
+
+            Console.WriteLine("--HandleTeamMatchmaking().Start--");
+            availableTeams.ForEach(x => Console.Write($"{string.Join('|', x.Participants.Select(p => p.Player.Name))},"));
+            Console.WriteLine("");
+
+            Console.WriteLine("--Queue info--");
+            queue.ForEach(x => Console.Write($"{string.Join('|', x.Team.Participants.Select(p => p.Player.Name))},"));
+            Console.WriteLine("");
+
+            int totalInQueue = 0;
+            availableTeams.ForEach(x => totalInQueue += x.Participants.Count);
+
+            int maxVsSize = totalInQueue / 2; // rounds down
+            Console.WriteLine($"maxVsSize:{maxVsSize}; totalInQueue:{totalInQueue}");
+
+            while (maxVsSize >= 3)
             {
-                foreach (var team in from t in queue select t.Team)
+                Team teamOne = new Team() { DoFellowship = true };
+                Team teamTwo = new Team() { DoFellowship = true };
+                List<Team> removeFromMatchmaking = new List<Team>();
+
+                while (teamOne.Participants.Count < maxVsSize)
                 {
-                    bool noMatches = true;
-                    foreach (var team2 in from t in queue where !t.Team.Equals(team) select t.Team)
+                    var team = from a in availableTeams
+                               where a.Participants.Count <= (maxVsSize - teamOne.Participants.Count)
+                               && a.Participants.Where(x => !teamOne.Participants.Select(x => x.PlayerGuid).Contains(x.PlayerGuid)).Count() > 0
+                               select a;
+                    team = team.OrderByDescending(x => x.Participants.Count).ThenBy(_ => Guid.NewGuid());
+                    if (team != null && team.Count() > 0)
                     {
-                        if (team.GetMatchingIpCount(team2) >= 1)
+                        teamOne.Participants.AddRange(team.FirstOrDefault().Participants);
+                        removeFromMatchmaking.Add(team.FirstOrDefault());
+                    }
+                    else
+                    {
+                        break;
+                    }
+                    Console.WriteLine($"teamOne.Participants.Count:{teamOne.Participants.Count}");
+                    Console.WriteLine(string.Join('|', teamOne.Participants.Select(p => p.Player.Name)));
+                }
+                if (teamOne.Participants.Count == maxVsSize)
+                {
+                    while (teamTwo.Participants.Count < maxVsSize)
+                    {
+                        var team = from a in availableTeams
+                                   where a.Participants.Count <= (maxVsSize - teamTwo.Participants.Count)
+                                   && a.Participants.Where(x => !teamOne.Participants.Select(x => x.PlayerGuid).Contains(x.PlayerGuid)).Count() > 0
+                                   && a.Participants.Where(x => !teamTwo.Participants.Select(x => x.PlayerGuid).Contains(x.PlayerGuid)).Count() > 0
+                                   select a;
+                        team = team.OrderByDescending(x => x.Participants.Count).ThenBy(_ => Guid.NewGuid());
+                        if (team != null && team.Count() > 0)
                         {
-                            noMatches = false;
+                            teamTwo.Participants.AddRange(team.FirstOrDefault().Participants);
+                            removeFromMatchmaking.Add(team.FirstOrDefault());
+                        }
+                        else
+                        {
                             break;
                         }
+                        Console.WriteLine($"teamTwo.Participants.Count:{teamTwo.Participants.Count}");
+                        Console.WriteLine(string.Join('|', teamTwo.Participants.Select(p => p.Player.Name)));
                     }
-                    if (noMatches)
-                        count++;
+                    if (teamTwo.Participants.Count == maxVsSize) // we found an even match!
+                    {
+                        removeFromMatchmaking.ForEach(x => queue.RemoveAll(e => e.Team == x));
+                        var e = new QueuePopEventArgs()
+                        {
+                            Matchup = new Match() { TeamOne = teamOne, TeamTwo = teamTwo },
+                            Timestamp = DateTime.Now,
+                        };
+                        OnQueuePop(e);
+                        return;
+                    }
                 }
+                var largestTeam = (from a in availableTeams orderby a.Participants.Count descending select a).FirstOrDefault();
+                availableTeams.Remove(largestTeam);
+                totalInQueue -= largestTeam.Participants.Count;
+                maxVsSize = totalInQueue / 2;
+                Console.WriteLine("--HandleTeamMatchmaking().EndOfLoop--");
+                availableTeams.ForEach(x => Console.Write($"{string.Join('|', x.Participants.Select(p => p.Player.Name))},"));
+                Console.WriteLine("");
             }
-            else
-            {
-                count = (uint)queue.Count;
-            }
-            return count;
+            Console.WriteLine("--Queue info--");
+            queue.ForEach(x => Console.Write($"{string.Join('|', x.Team.Participants.Select(p => p.Player.Name))},"));
+            Console.WriteLine("");
+            Console.WriteLine("--availableTeams info--");
+            availableTeams.ForEach(x => Console.Write($"{string.Join('|', x.Participants.Select(p => p.Player.Name))},"));
+            Console.WriteLine("");
+            Console.WriteLine("--HandleTeamMatchmaking().End--");
         }
 
         public class Entrant

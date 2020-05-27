@@ -51,11 +51,12 @@ namespace ACE.Server.Entity
             RemoveAbility(player);
 
             AddPerks(player);
+
+            player.PlayParticleEffect(PlayScript.WeddingBliss, player.Guid);
         }
 
         public static bool VerifyRequirements(Player player)
         {
-
             if (player.Level != 275)
             {
                 player.Session.Network.EnqueueSend(new GameMessageSystemChat($"You must be level 275 for enlightenment.", ChatMessageType.Broadcast));
@@ -116,7 +117,7 @@ namespace ACE.Server.Entity
         {
             RemoveLevel(player);
             RemoveAetheria(player);
-            RemoveLuminance(player);
+            //RemoveLuminance(player);
         }
 
         public static void RemoveLevel(Player player)
@@ -209,10 +210,15 @@ namespace ACE.Server.Entity
             }
 
             // scale XP
-            float xpScale = 1.0f / System.MathF.Pow(1.3f, player.Enlightenment);
+            float xpScale = CalculateXpNerf((uint)player.Enlightenment);
             player.SetProperty(PropertyFloat.GlobalXpMod, xpScale);
 
             // todo: attribute reset certificate
+        }
+
+        public static float CalculateXpNerf(uint enlightenmentLevel)
+        {
+            return 1.0f / System.MathF.Pow(1.3f, enlightenmentLevel);
         }
     }
 }
