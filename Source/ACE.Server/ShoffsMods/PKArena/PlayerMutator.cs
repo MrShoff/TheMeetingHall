@@ -484,6 +484,7 @@ namespace ACE.Server.ShoffsMods.PKArena
         private static void AddStandardSpells(Player target)
         {
             // life spells
+            target.AddKnownSpell((uint)SpellId.RevitalizeSelf7);
             target.AddKnownSpell((uint)SpellId.RevitalizeSelf8);
             target.AddKnownSpell((uint)SpellId.HealSelf8);
             target.AddKnownSpell((uint)SpellId.StaminaToHealthSelf7);
@@ -599,9 +600,9 @@ namespace ACE.Server.ShoffsMods.PKArena
             s3Spells.Add(SpellId.FlameArc8);
             s3Spells.Add(SpellId.FlameBolt8);
             if (target.VerifySpell((uint)SpellId.FlameStreak8))
-                s2Spells.Add(SpellId.FlameStreak8);
+                s3Spells.Add(SpellId.FlameStreak8);
             else
-                s2Spells.Add(SpellId.LifestoneTie1);
+                s3Spells.Add(SpellId.LifestoneTie1);
             s3Spells.Add(SpellId.HealSelf8);
             s3Spells.Add(SpellId.StaminaToManaSelf7);
             s3Spells.Add(SpellId.FireVulnerabilityOther8);
@@ -626,9 +627,9 @@ namespace ACE.Server.ShoffsMods.PKArena
             s4Spells.Add(SpellId.FrostArc8);
             s4Spells.Add(SpellId.FrostBolt8);
             if (target.VerifySpell((uint)SpellId.FrostStreak8))
-                s2Spells.Add(SpellId.FrostStreak8);
+                s4Spells.Add(SpellId.FrostStreak8);
             else
-                s2Spells.Add(SpellId.LifestoneTie1);
+                s4Spells.Add(SpellId.LifestoneTie1);
             s4Spells.Add(SpellId.HealSelf8);
             s4Spells.Add(SpellId.StaminaToManaSelf7);
             s4Spells.Add(SpellId.ColdVulnerabilityOther8);
@@ -653,9 +654,9 @@ namespace ACE.Server.ShoffsMods.PKArena
             s5Spells.Add(SpellId.ShockArc8);
             s5Spells.Add(SpellId.ShockWave8);
             if (target.VerifySpell((uint)SpellId.ShockwaveStreak8))
-                s2Spells.Add(SpellId.ShockwaveStreak8);
+                s5Spells.Add(SpellId.ShockwaveStreak8);
             else
-                s2Spells.Add(SpellId.LifestoneTie1);
+                s5Spells.Add(SpellId.LifestoneTie1);
             s5Spells.Add(SpellId.HealSelf8);
             s5Spells.Add(SpellId.StaminaToManaSelf7);
             s5Spells.Add(SpellId.BludgeonVulnerabilityOther8);
@@ -680,9 +681,9 @@ namespace ACE.Server.ShoffsMods.PKArena
             s6Spells.Add(SpellId.BladeArc8);
             s6Spells.Add(SpellId.WhirlingBlade8);
             if (target.VerifySpell((uint)SpellId.WhirlingBladeStreak8))
-                s2Spells.Add(SpellId.WhirlingBladeStreak8);
+                s6Spells.Add(SpellId.WhirlingBladeStreak8);
             else
-                s2Spells.Add(SpellId.LifestoneTie1);
+                s6Spells.Add(SpellId.LifestoneTie1);
             s6Spells.Add(SpellId.HealSelf8);
             s6Spells.Add(SpellId.StaminaToManaSelf7);
             s6Spells.Add(SpellId.BladeVulnerabilityOther8);
@@ -707,9 +708,9 @@ namespace ACE.Server.ShoffsMods.PKArena
             s7Spells.Add(SpellId.ForceArc8);
             s7Spells.Add(SpellId.ForceBolt8);
             if (target.VerifySpell((uint)SpellId.ForceStreak8))
-                s2Spells.Add(SpellId.ForceStreak8);
+                s7Spells.Add(SpellId.ForceStreak8);
             else
-                s2Spells.Add(SpellId.LifestoneTie1);
+                s7Spells.Add(SpellId.LifestoneTie1);
             s7Spells.Add(SpellId.HealSelf8);
             s7Spells.Add(SpellId.StaminaToManaSelf7);
             s7Spells.Add(SpellId.PiercingVulnerabilityOther8);
@@ -734,9 +735,9 @@ namespace ACE.Server.ShoffsMods.PKArena
             s8Spells.Add(SpellId.AcidArc8);
             s8Spells.Add(SpellId.AcidStream8);
             if (target.VerifySpell((uint)SpellId.AcidStreak8))
-                s2Spells.Add(SpellId.AcidStreak8);
+                s8Spells.Add(SpellId.AcidStreak8);
             else
-                s2Spells.Add(SpellId.LifestoneTie1);
+                s8Spells.Add(SpellId.LifestoneTie1);
             s8Spells.Add(SpellId.HealSelf8);
             s8Spells.Add(SpellId.StaminaToManaSelf7);
             s8Spells.Add(SpellId.AcidVulnerabilityOther8);

@@ -11,6 +11,8 @@ using ACE.Server.Entity.Actions;
 using ACE.Server.Managers;
 using ACE.Server.Network.GameEvent.Events;
 using ACE.Server.Network.GameMessages.Messages;
+using System;
+using ACE.Server.ShoffsMods;
 
 namespace ACE.Server.WorldObjects
 {
@@ -248,8 +250,27 @@ namespace ACE.Server.WorldObjects
 #if DEBUG
             // player.Session.Network.EnqueueSend(new GameMessageSystemChat("Portal sending player to destination", ChatMessageType.System));
 #endif
+            if (Enum.IsDefined(typeof(DailyDungeonProperties.DailyDungeon), WeenieClassId))
+            {
+                log.Info($"[DEBUG] {player.Name} using daily dungeon portal detected");
+                int numInSameGuild = 0;
+                var players = DailyDungeonProperties.GetPlayers((DailyDungeonProperties.DailyDungeon)WeenieClassId);
+                foreach(var p in players)
+                {
+                    if (p.Allegiance != null && player.Allegiance != null && p.Allegiance.MonarchId == player.Allegiance.MonarchId)
+                    {
+                        numInSameGuild++;
+                    }
+                }
+                if (numInSameGuild >= DailyDungeonProperties.MaxAllegiancePlayerLimit)
+                {
+                    player.Session.Network.EnqueueSend(new GameMessageSystemChat($"[Daily Dungeon] Your guild has reached the player limit ({DailyDungeonProperties.MaxAllegiancePlayerLimit}) for this dungeon.", ChatMessageType.Magic));
+                    return;
+                }
+            }
+
             var portalDest = new Position(Destination);
-            WorldObject.AdjustDungeon(portalDest);
+            AdjustDungeon(portalDest);
 
             WorldManager.ThreadSafeTeleport(player, portalDest, new ActionEventDelegate(() =>
             {

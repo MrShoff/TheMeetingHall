@@ -320,6 +320,13 @@ namespace ACE.Server.WorldObjects
                 return false;
             }
 
+            // player can't swear allegiance inside of the daily dungeon
+            if (IsInDailyDungeon)
+            {
+                Session.Network.EnqueueSend(new GameMessageSystemChat($"You cannot swear allegiance to someone while inside the Daily Dungeon.", ChatMessageType.Broadcast));
+                return false;
+            }
+
             // patron must currently be greater or equal level
             /*if (target.Level < Level)
             {
@@ -474,7 +481,7 @@ namespace ACE.Server.WorldObjects
             if (AllegianceXPCached == 0) return;
 
             // TODO: handle ulong -> long?
-            if (Enlightenment == 0) // in the meeting hall mod, receiving passup is disabled for enlightened characters
+            if (Enlightenment == 0 || Level >= 150) // in the meeting hall mod, receiving passup is disabled for enlightened characters
                 GrantXP((long)AllegianceXPCached, XpType.Allegiance, ShareType.None);
 
             AllegianceXPReceived += AllegianceXPCached;

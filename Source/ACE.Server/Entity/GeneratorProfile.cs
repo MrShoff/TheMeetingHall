@@ -11,6 +11,7 @@ using ACE.Entity.Models;
 using ACE.Server.Factories;
 using ACE.Server.Physics.Common;
 using ACE.Server.WorldObjects;
+using ACE.Server.ShoffsMods;
 
 namespace ACE.Server.Entity
 {
@@ -250,6 +251,14 @@ namespace ACE.Server.Entity
             }
             else
             {
+                if (Generator.WeenieClassId == DailyDungeonProperties.DailyDungeonGeneratorWcid)
+                {
+                    var ddWcids = DailyDungeonProperties.GetDailyDungeonWcids();
+                    foreach (uint wcid in ddWcids)
+                    {
+                        DatabaseManager.World.ClearCachedWeenie(wcid);
+                    }
+                }
                 var wo = WorldObjectFactory.CreateNewWorldObject(Biota.WeenieClassId);
                 if (wo == null)
                 {

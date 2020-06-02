@@ -21,6 +21,11 @@ namespace ACE.Server.WorldObjects
         /// <param name="shareable">True if this XP can be shared with Fellowship</param>
         public void EarnXP(long amount, XpType xpType, ShareType shareType = ShareType.All)
         {
+            if (xpType == XpType.Quest && Enlightenment > 0 && Level < 150)
+            {
+                return;
+            }
+
             //Console.WriteLine($"{Name}.EarnXP({amount}, {sharable}, {fixedAmount})");
 
             // apply xp modifier
@@ -294,7 +299,7 @@ namespace ACE.Server.WorldObjects
                 {
                     var curXpMod = GetProperty(PropertyFloat.GlobalXpMod);
                     if (curXpMod != 2.0f)
-                        SetProperty(PropertyFloat.GlobalXpMod, 2.0f);
+                        UpdateProperty(this, PropertyFloat.GlobalXpMod, 2.0f);
                 }
                 var currentCredits = new GameMessagePrivateUpdatePropertyInt(this, PropertyInt.AvailableSkillCredits, AvailableSkillCredits ?? 0);
 

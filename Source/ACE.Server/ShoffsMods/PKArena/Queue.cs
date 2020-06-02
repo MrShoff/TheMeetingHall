@@ -81,8 +81,7 @@ namespace ACE.Server.ShoffsMods.PKArena
                 {
                     if (participant.Player != null)
                     {
-                        participant.Player.Session.Network.EnqueueSend(new GameMessageSystemChat($"[PvP Queue] You have been queued for a fight. You will get a confirmation pop-up when your match is ready.", ChatMessageType.Broadcast));
-                        
+                        participant.Player.Session.Network.EnqueueSend(new GameMessageSystemChat($"[PvP Queue] You have been queued for a fight. You will get a confirmation pop-up when your match is ready.", ChatMessageType.Broadcast));                        
                     }
                 }
                 if (DoTeamMatchmaking)
@@ -171,18 +170,17 @@ namespace ACE.Server.ShoffsMods.PKArena
             availableTeams.AddRange(queue.Select(x => x.Team));
 
             Console.WriteLine("--HandleTeamMatchmaking().Start--");
-            availableTeams.ForEach(x => Console.Write($"{string.Join('|', x.Participants.Select(p => p.Player.Name))},"));
-            Console.WriteLine("");
+            //availableTeams.ForEach(x => Console.Write($"{string.Join('|', x.Participants.Select(p => p.Player.Name))},"));
+            //Console.WriteLine("");
 
-            Console.WriteLine("--Queue info--");
-            queue.ForEach(x => Console.Write($"{string.Join('|', x.Team.Participants.Select(p => p.Player.Name))},"));
+            Console.WriteLine("--Queue info (beginning)--");
+            queue.ForEach(x => Console.Write($"{string.Join('|', x.Team.Participants.Select(p => p.Player?.Name))},"));
             Console.WriteLine("");
 
             int totalInQueue = 0;
             availableTeams.ForEach(x => totalInQueue += x.Participants.Count);
 
             int maxVsSize = totalInQueue / 2; // rounds down
-            Console.WriteLine($"maxVsSize:{maxVsSize}; totalInQueue:{totalInQueue}");
 
             while (maxVsSize >= 3)
             {
@@ -194,20 +192,20 @@ namespace ACE.Server.ShoffsMods.PKArena
                 {
                     var team = from a in availableTeams
                                where a.Participants.Count <= (maxVsSize - teamOne.Participants.Count)
-                               && a.Participants.Where(x => !teamOne.Participants.Select(x => x.PlayerGuid).Contains(x.PlayerGuid)).Count() > 0
+                               && a.Participants.Where(x => !teamOne.Participants.Select(x => x.PlayerGuid).Contains(x.PlayerGuid)).Count() == a.Participants.Count
                                select a;
-                    team = team.OrderByDescending(x => x.Participants.Count).ThenBy(_ => Guid.NewGuid());
+                    team = team.OrderByDescending(x => x.Participants.Count).ThenBy(_ => Guid.NewGuid());                    
                     if (team != null && team.Count() > 0)
                     {
-                        teamOne.Participants.AddRange(team.FirstOrDefault().Participants);
-                        removeFromMatchmaking.Add(team.FirstOrDefault());
+                        var selectedTeam = team.Take(1).ToList()[0];
+                        teamOne.Participants.AddRange(selectedTeam.Participants);
+                        removeFromMatchmaking.Add(selectedTeam);
                     }
                     else
                     {
                         break;
                     }
-                    Console.WriteLine($"teamOne.Participants.Count:{teamOne.Participants.Count}");
-                    Console.WriteLine(string.Join('|', teamOne.Participants.Select(p => p.Player.Name)));
+                    Console.WriteLine($"teamOne: Count:{teamOne.Participants.Count}; Participants:{string.Join('|', teamOne.Participants.Select(p => p.Player?.Name))}");
                 }
                 if (teamOne.Participants.Count == maxVsSize)
                 {
@@ -215,25 +213,29 @@ namespace ACE.Server.ShoffsMods.PKArena
                     {
                         var team = from a in availableTeams
                                    where a.Participants.Count <= (maxVsSize - teamTwo.Participants.Count)
-                                   && a.Participants.Where(x => !teamOne.Participants.Select(x => x.PlayerGuid).Contains(x.PlayerGuid)).Count() > 0
-                                   && a.Participants.Where(x => !teamTwo.Participants.Select(x => x.PlayerGuid).Contains(x.PlayerGuid)).Count() > 0
+                                   && a.Participants.Where(x => !teamOne.Participants.Select(x => x.PlayerGuid).Contains(x.PlayerGuid)).Count() == a.Participants.Count
+                                   && a.Participants.Where(x => !teamTwo.Participants.Select(x => x.PlayerGuid).Contains(x.PlayerGuid)).Count() == a.Participants.Count
                                    select a;
                         team = team.OrderByDescending(x => x.Participants.Count).ThenBy(_ => Guid.NewGuid());
                         if (team != null && team.Count() > 0)
                         {
-                            teamTwo.Participants.AddRange(team.FirstOrDefault().Participants);
-                            removeFromMatchmaking.Add(team.FirstOrDefault());
+                            var selectedTeam = team.Take(1).ToList()[0];
+                            teamTwo.Participants.AddRange(selectedTeam.Participants);
+                            removeFromMatchmaking.Add(selectedTeam);
                         }
                         else
                         {
                             break;
                         }
-                        Console.WriteLine($"teamTwo.Participants.Count:{teamTwo.Participants.Count}");
-                        Console.WriteLine(string.Join('|', teamTwo.Participants.Select(p => p.Player.Name)));
+                        Console.WriteLine($"teamTwo: Count:{teamTwo.Participants.Count}; Participants:{string.Join('|', teamTwo.Participants.Select(p => p.Player?.Name))}");
                     }
                     if (teamTwo.Participants.Count == maxVsSize) // we found an even match!
                     {
+                        Console.WriteLine($"We found a match!");
+                        Console.WriteLine($"{string.Join(',', teamOne.Participants.Select(x => x.Player?.Name))} vs {string.Join(',', teamTwo.Participants.Select(x => x.Player?.Name))}");
+                        Console.WriteLine($"{queue.Count} teams in mm queue, {removeFromMatchmaking.Count} set for removal");
                         removeFromMatchmaking.ForEach(x => queue.RemoveAll(e => e.Team == x));
+                        Console.WriteLine($"{queue.Count} teams in mm queue after removal");
                         var e = new QueuePopEventArgs()
                         {
                             Matchup = new Match() { TeamOne = teamOne, TeamTwo = teamTwo },
@@ -247,16 +249,16 @@ namespace ACE.Server.ShoffsMods.PKArena
                 availableTeams.Remove(largestTeam);
                 totalInQueue -= largestTeam.Participants.Count;
                 maxVsSize = totalInQueue / 2;
-                Console.WriteLine("--HandleTeamMatchmaking().EndOfLoop--");
-                availableTeams.ForEach(x => Console.Write($"{string.Join('|', x.Participants.Select(p => p.Player.Name))},"));
-                Console.WriteLine("");
+                //Console.WriteLine("--HandleTeamMatchmaking().EndOfLoop--");
+                //availableTeams.ForEach(x => Console.Write($"{string.Join('|', x.Participants.Select(p => p.Player.Name))},"));
+                //Console.WriteLine("");
             }
-            Console.WriteLine("--Queue info--");
-            queue.ForEach(x => Console.Write($"{string.Join('|', x.Team.Participants.Select(p => p.Player.Name))},"));
+            Console.WriteLine("--Queue info (end)--");
+            queue.ForEach(x => Console.Write($"{string.Join('|', x.Team.Participants.Select(p => p.Player?.Name))},"));
             Console.WriteLine("");
-            Console.WriteLine("--availableTeams info--");
-            availableTeams.ForEach(x => Console.Write($"{string.Join('|', x.Participants.Select(p => p.Player.Name))},"));
-            Console.WriteLine("");
+            //Console.WriteLine("--availableTeams info--");
+            //availableTeams.ForEach(x => Console.Write($"{string.Join('|', x.Participants.Select(p => p.Player.Name))},"));
+            //Console.WriteLine("");
             Console.WriteLine("--HandleTeamMatchmaking().End--");
         }
 

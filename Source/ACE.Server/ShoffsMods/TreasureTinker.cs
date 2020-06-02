@@ -94,45 +94,43 @@ namespace ACE.Server.ShoffsMods
         /// <param name="wo">Loot to be tinkered.</param>
         /// <param name="player">Player who "did the tinkering". Can be null.</param>
         /// <returns>Tinkered loot.</returns>
-        public WorldObject ApplyTinks(WorldObject wo, Player player = null)
+        public void ApplyTinks(WorldObject wo, Player player = null)
         {
             _ = wo ?? throw new ArgumentNullException(nameof(wo));
 
-            if (ThreadSafeRandom.Next(1, tinkChance.Denominator) > tinkChance.Numerator) return wo;
+            if (ThreadSafeRandom.Next(1, tinkChance.Denominator) > tinkChance.Numerator) return;
 
-            WorldObject tinkeredObject = null;
             switch (wo.ItemType)
             {
                 case ItemType.Armor:
                 case ItemType.Clothing when wo.ArmorLevel > 0:
-                    tinkeredObject = ApplyArmorTinks(wo, player);
+                    ApplyArmorTinks(wo, player);
                     break;
                 case ItemType.Caster:
-                    tinkeredObject = ApplyCasterTinks(wo, player);
+                    ApplyCasterTinks(wo, player);
                     break;
                 case ItemType.MissileWeapon:
-                    tinkeredObject = ApplyMissileWeaponTinks(wo, player);
+                    ApplyMissileWeaponTinks(wo, player);
                     break;
                 case ItemType.MeleeWeapon:
-                    tinkeredObject = ApplyMeleeWeaponTinks(wo, player);
+                    ApplyMeleeWeaponTinks(wo, player);
                     break;
                 case ItemType.Jewelry:
-                    tinkeredObject = ApplyJewelryTinks(wo, player);
+                    ApplyJewelryTinks(wo, player);
                     break;
                 default:
-                    return wo;
+                    return;
             }
             if (player != null)
             {
-                if (tinkeredObject.GetImbuedEffects() != ImbuedEffectType.Undef)
-                    tinkeredObject.SetProperty(PropertyString.ImbuerName, player.Name);
-                if (tinkeredObject.NumTimesTinkered > 0)
-                    tinkeredObject.SetProperty(PropertyString.TinkerName, player.Name);
+                if (wo.GetImbuedEffects() != ImbuedEffectType.Undef)
+                    wo.SetProperty(PropertyString.ImbuerName, player.Name);
+                if (wo.NumTimesTinkered > 0)
+                    wo.SetProperty(PropertyString.TinkerName, player.Name);
             }
-            return tinkeredObject;
         }
 
-        private static void ApplyInscription(WorldObject item, Player p, string inscriptionText)
+        public static void ApplyInscription(WorldObject item, Player p, string inscriptionText)
         {
             if (p == null) return;
 
@@ -142,7 +140,7 @@ namespace ACE.Server.ShoffsMods
             item.ScribeIID = p.Guid.Full;
         }
 
-        private WorldObject ApplyJewelryTinks(WorldObject jewelry, Player player = null)
+        private void ApplyJewelryTinks(WorldObject jewelry, Player player = null)
         {
             try
             {
@@ -163,15 +161,13 @@ namespace ACE.Server.ShoffsMods
             {
                 log.Error(ex);
             }
-
-            return jewelry;
         }
 
-        private WorldObject ApplyArmorTinks(WorldObject armor, Player player = null)
+        private void ApplyArmorTinks(WorldObject armor, Player player = null)
         {
             try
             {
-                if (!armor.IsEnchantable) return armor; 
+                if (!armor.IsEnchantable) return; 
 
                 // get num of tinks to apply based on workmanshop
                 int? tinksToApply = GetNumTinksToApply(armor);
@@ -218,11 +214,9 @@ namespace ACE.Server.ShoffsMods
             {
                 log.Error(ex);
             }
-
-            return armor;
         }
 
-        private WorldObject ApplyCasterTinks(WorldObject caster, Player player = null)
+        private void ApplyCasterTinks(WorldObject caster, Player player = null)
         {
             try
             {
@@ -295,11 +289,9 @@ namespace ACE.Server.ShoffsMods
             {
                 log.Error(ex);
             }
-
-            return caster;
         }
 
-        private WorldObject ApplyMissileWeaponTinks(WorldObject missileWeapon, Player player = null)
+        private void ApplyMissileWeaponTinks(WorldObject missileWeapon, Player player = null)
         {
             try
             {
@@ -355,11 +347,9 @@ namespace ACE.Server.ShoffsMods
             {
                 log.Error(ex);
             }
-
-            return missileWeapon;
         }
 
-        private WorldObject ApplyMeleeWeaponTinks(WorldObject meleeWeapon, Player player = null)
+        private void ApplyMeleeWeaponTinks(WorldObject meleeWeapon, Player player = null)
         {
             try
             {
@@ -436,8 +426,6 @@ namespace ACE.Server.ShoffsMods
             {
                 log.Error(ex);
             }
-
-            return meleeWeapon;
         }
 
         private static MaterialType GetMaterialForRend(WorldObject wo)

@@ -180,7 +180,11 @@ namespace ACE.Server.WorldObjects
                     totalXP *= 1.0f + playerDamager.AugmentationBonusXp * 0.05f;
 
                 if (playerDamager.IsInDailyDungeon)
-                    totalXP *= 2.0f;
+                {
+                    var xpMult = DailyDungeonProperties.GetMyDailyDungeonXpMultiplier(playerDamager);
+
+                    totalXP *= xpMult;
+                }
 
                 playerDamager.EarnXP((long)Math.Round(totalXP), XpType.Kill);
 
@@ -511,19 +515,13 @@ namespace ACE.Server.WorldObjects
                             KeyValuePair<ObjectGuid, WorldObject> curItem = corpse.Inventory.ElementAt(i);
                             if (curItem.Value != null)
                             {
-                                WorldObject tinkedVariant = null;
                                 if (curItem.Value.ItemType == ItemType.Armor || (curItem.Value.ItemType == ItemType.Clothing && curItem.Value.ArmorLevel > 0))
                                 {
-                                    tinkedVariant = armorTinkerer.ApplyTinks(curItem.Value, p);
+                                    armorTinkerer.ApplyTinks(curItem.Value, p);
                                 }
                                 else if (curItem.Value.ItemType == ItemType.MeleeWeapon || curItem.Value.ItemType == ItemType.MissileWeapon || curItem.Value.ItemType == ItemType.Caster || curItem.Value.ItemType == ItemType.Jewelry)
                                 {
-                                    tinkedVariant = weaponTinkerer.ApplyTinks(curItem.Value, p);
-                                }
-                                if (tinkedVariant != null)
-                                {
-                                    corpse.TryRemoveFromInventory(curItem.Key);
-                                    corpse.TryAddToInventory(tinkedVariant);
+                                    weaponTinkerer.ApplyTinks(curItem.Value, p);
                                 }
                             }
                         }
@@ -544,6 +542,20 @@ namespace ACE.Server.WorldObjects
             }
 
             return droppedItems;
+        }
+
+        private string RateMyLoot(Player p, WorldObject item, TreasureDeath deathTreasure)
+        {
+            string rating = string.Empty;
+            if (item is Clothing)
+            {
+
+            }
+            if (item is MeleeWeapon)
+            {
+
+            }
+            return rating;
         }
 
         public void DoCantripLogging(DamageHistoryInfo killer, WorldObject wo)

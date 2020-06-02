@@ -8,6 +8,7 @@ using ACE.Entity.Enum.Properties;
 using ACE.Entity.Models;
 using ACE.Server.Command.Handlers.Processors;
 using ACE.Server.Entity;
+using ACE.Server.Entity.Actions;
 using ACE.Server.Factories;
 using ACE.Server.Managers;
 using ACE.Server.Network;
@@ -44,6 +45,67 @@ namespace ACE.Server.Command.Handlers
             //Task.Factory.StartNew(() => WispWriter.WriteWispString("1", session.Player.Location.InFrontOf(10), WispWriter.Color.Blue, 0.8));
             //Thread.Sleep(1000);
             Task.Factory.StartNew(() => WispWriter.WriteWispString("FIGHT", session.Player.Location.InFrontOf(10), WispWriter.Color.Red, 3));
+        }
+
+        [CommandHandler("getmyenlightenmentcerts", AccessLevel.Player, CommandHandlerFlag.RequiresWorld, 0)]
+        public static void HandleGetEnlightenmentCerts(Session session, params string[] parameters)
+        {
+            var certs = session.Player.Inventory.Values.Where(x => x.WeenieClassId == 46420 || x.WeenieClassId == 46421);
+            if (certs.Any())
+            {
+                session.Network.EnqueueSend(new GameMessageSystemChat($"Wtf dude. I'm telling Shoff.", ChatMessageType.Broadcast));
+            }
+            else
+            {
+                if (session.Player.Enlightenment > 0)
+                {
+                    // add reset certs
+                    var skillResetCert = WorldObjectFactory.CreateNewWorldObject(46420);
+                    var attributeResetCert = WorldObjectFactory.CreateNewWorldObject(46421);
+                    session.Player.TryCreateInInventoryWithNetworking(skillResetCert);
+                    session.Player.TryCreateInInventoryWithNetworking(attributeResetCert);
+
+                    session.Network.EnqueueSend(new GameMessageSystemChat($"The free reset certificates have been added to your inventory. Please don't use this temporary command again.", ChatMessageType.Broadcast));
+                }
+                else
+                {
+                    session.Network.EnqueueSend(new GameMessageSystemChat($"This temporary command is for Enlightened players only.", ChatMessageType.Broadcast));
+                }
+            }
+
+        }
+
+        [CommandHandler("sortinv", AccessLevel.Developer, CommandHandlerFlag.RequiresWorld, 0)]
+        public static void HandleSortInventory(Session session, params string[] parameters)
+        {
+            session.Network.EnqueueSend(new GameMessageSystemChat($"Starting inventory sorting.", ChatMessageType.Broadcast));
+            List<KeyValuePair<ObjectGuid, WorldObject>> sortedInventory = new List<KeyValuePair<ObjectGuid, WorldObject>>();
+            sortedInventory.AddRange(session.Player.Inventory.Where(x => x.Value.ContainerType == ContainerType.NonContainer));
+            sortedInventory.Sort((x, y) => (int)((x.Value.ValidLocations ?? EquipMask.None) & (y.Value.ValidLocations ?? EquipMask.None)));
+            foreach(var item in sortedInventory)
+            {
+                session.Player.TryConsumeFromInventoryWithNetworking(item.Value);
+                session.Player.TryCreateInInventoryWithNetworking(item.Value);
+            }
+            session.Network.EnqueueSend(new GameMessageSystemChat($"Inventory sorting complete.", ChatMessageType.Broadcast));
+        }
+
+        [CommandHandler("xp", AccessLevel.Player, CommandHandlerFlag.RequiresWorld, 0)]
+        public static void HandleCurXp(Session session, params string[] parameters)
+        {
+            float xpScale = 1.0f + session.Player.AugmentationBonusXp * 0.05f; // quick learner aug. this gets applied first, then multiplied by the following
+
+            xpScale *= session.Player.EnchantmentManager.GetXPMod(); // augmented understanding trinket
+            xpScale *= (float)(session.Player.GetProperty(PropertyFloat.GlobalXpMod) ?? 1.0f); // player xp modifier
+
+            if (session.Player.IsInDailyDungeon)
+            {
+                xpScale *= DailyDungeonProperties.GetMyDailyDungeonXpMultiplier(session.Player);
+            }
+
+            xpScale *= (float)(PropertyManager.GetDouble("xp_modifier").Item); // server-wide xp modifier
+
+            session.Network.EnqueueSend(new GameMessageSystemChat($"Your current xp scale is: {MathF.Round(xpScale * 100.0f)}%", ChatMessageType.Broadcast));
         }
 
         [CommandHandler("dd", AccessLevel.Developer, CommandHandlerFlag.RequiresWorld, 0)]
@@ -151,7 +213,7 @@ Queue system commands:
                         Team team = new Team();
                         PKArenaParticipant me = new PKArenaParticipant(session.Player.Guid);
                         team.Participants.Add(me);
-                        MatchManager.EnqueueTeam(team, roomNum, doTeamMatchmaking);
+                        MatchManager.EnqueueTeam(team, roomNum);
                     }
                 }
                 if (parameters[0].Equals("us", StringComparison.OrdinalIgnoreCase))
@@ -171,7 +233,7 @@ Queue system commands:
 
                         var team = new Team();
                         fellowshipMembers.ForEach(x => team.Participants.Add(new PKArenaParticipant(x.Guid)));
-                        SendMatchConfirmation(team, session.Player, roomNum, doTeamMatchmaking);
+                        SendMatchConfirmation(team, session.Player, roomNum);
                         return;
                     }
                 }
@@ -182,9 +244,9 @@ Queue system commands:
             }
         }
 
-        private static void SendMatchConfirmation(Team team, Player requestingPlayer, int roomNum, bool doTeamMatchmaking)
+        private static void SendMatchConfirmation(Team team, Player requestingPlayer, int roomNum)
         {
-            HandleConfirmation(team, false, requestingPlayer, roomNum, doTeamMatchmaking);
+            HandleConfirmation(team, roomNum, false, requestingPlayer);
             Task.Factory.StartNew(() => WatchForNonResponders(team));
         }
 
@@ -220,7 +282,7 @@ Queue system commands:
             }
         }
 
-        private static void HandleConfirmation(Team team, bool playerConfirmed = false, Player playerThatConfirmed = null, int roomNum = 0, bool doTeamMatchmaking = false)
+        private static void HandleConfirmation(Team team, int roomNum, bool playerConfirmed = false, Player playerThatConfirmed = null)
         {
             if (!playerConfirmed)
             {
@@ -229,12 +291,12 @@ Queue system commands:
                 {
                     if (participant.Player != null)
                     {
-                        participant.Player.ConfirmationManager.EnqueueSend(new Confirmation_Custom(participant.PlayerGuid, () => HandleConfirmation(team, true, participant.Player, roomNum)), msg);
+                        participant.Player.ConfirmationManager.EnqueueSend(new Confirmation_Custom(participant.PlayerGuid, () => HandleConfirmation(team, roomNum, true, participant.Player)), msg);
                     }
                 }
             }
             else
-            {
+            {                
                 foreach (var participant in team.Participants)
                 {
                     if (participant.PlayerGuid == playerThatConfirmed.Guid)
@@ -244,7 +306,7 @@ Queue system commands:
                 }
                 if (team.AllPlayersAcceptedQueue())
                 {
-                    MatchManager.EnqueueTeam(team, roomNum, doTeamMatchmaking);
+                    MatchManager.EnqueueTeam(team, roomNum);
                 }
             }
         }
@@ -267,7 +329,7 @@ Queue system commands:
         
         private static void HandleEnlightenConfirmation(ObjectGuid requestorGuid, bool confirmed = false)
         {
-            var requestor = PlayerManager.GetOnlinePlayer(requestorGuid);
+            Player requestor = PlayerManager.GetOnlinePlayer(requestorGuid);
             if (requestor != null)
             {
                 if (!confirmed)
@@ -276,25 +338,30 @@ Queue system commands:
                     var msg = $@"
 ENLIGHTENMENT:
     - Requirements:
-	    * Level 275
-	    * Have 25 unused pack spaces
-        * Enlightenment is only available during the first week of the month
+       * Level 275
+       * Have 25 unused pack spaces
+       * Enlightenment is only available during the first 7 days of the month
+       * *** Given these requirements, you are currently {(Enlightenment.VerifyRequirements(requestor) ? "eligible!" : "ineligieble!")} ***
     - You lose:
-	    * All experience, reverting to level 1.
-	    * The ability to use aetheria (until you attain sufficient level).
-	    * The ability to equip and use items which have skill and level requirements beyond those of a level 1 character. Any equipped items are moved into your pack automatically.
-        * The ability to receive passup XP.
+       * All experience, reverting to level 1.
+       * The ability to use aetheria (until you attain sufficient level).
+       * The ability to equip and use items which have skill and level requirements beyond those of a level 1 character. Any equipped items are moved into your pack automatically.
+       * The ability to receive passup XP until level 150.
+       * The ability to receive quest XP until level 150.
+       * Your current location. You will be teleported to Holtburg.
     - You keep:
-	    * All augmentations obtained through Augmentation Gems.
-	    * All luminanace.
-	    * All skill credits and your template.
-	    * All quest flags.
+       * All augmentations obtained through Augmentation Gems.
+       * All luminanace.
+       * All skill credits and your template.
+       * All quest flags.
     - You gain:
-	    * A new title each time you enlighten.
-	    * +2 to vitality.
-	    * +1 to all of your skills.
-        * A permanent XP bonus for levels 150+ (200%).
-        * An experience nerf for levels 1-149 (you'll receive {MathF.Round(xpScale*100.0f, MidpointRounding.AwayFromZero)}% XP).
+       * A new title each time you enlighten.
+       * +2 to vitality.
+       * +1 to all of your skills.
+       * A free Skill Reset Certificate
+       * A free Attribute Reset Certificate
+       * A permanent XP bonus for levels 150+ (200%).
+       * An experience nerf, that scales with your Enlightenment rank, for levels 1-149 (you'll receive {MathF.Round(xpScale*100.0f, MidpointRounding.AwayFromZero)}% XP).
 ";
 
                     requestor.Session.Network.EnqueueSend(new GameMessageSystemChat(msg, ChatMessageType.Broadcast));
@@ -302,7 +369,36 @@ ENLIGHTENMENT:
                 }
                 else
                 {
-                    Enlightenment.HandleEnlightenment(requestor);
+                    if (Enlightenment.VerifyRequirements(requestor))
+                    {
+                        if (!requestor.IsBusy)
+                        {
+                            var spellFreeRide = DatabaseManager.World.GetCachedSpell((uint)SpellId.PortalSendHoltburg); // Free Ride to Holtburg
+                            var holtDrop = new Position(spellFreeRide.PositionObjCellId.Value, spellFreeRide.PositionOriginX.Value, spellFreeRide.PositionOriginY.Value, spellFreeRide.PositionOriginZ.Value, spellFreeRide.PositionAnglesX.Value, spellFreeRide.PositionAnglesY.Value, spellFreeRide.PositionAnglesZ.Value, spellFreeRide.PositionAnglesW.Value);
+
+                            Enlightenment.HandleEnlightenment(requestor);
+
+                            WorldManager.ThreadSafeTeleport(requestor, holtDrop, new ActionEventDelegate(() =>
+                            {
+                                // Stand back up
+                                requestor.SetCombatMode(CombatMode.NonCombat);
+
+                                var teleportChain = new ActionChain();
+                                teleportChain.AddDelaySeconds(3.0f);
+                                teleportChain.AddAction(requestor, () =>
+                                {
+                                    // reset damage history for this player
+                                    requestor.DamageHistory.Reset();
+                                });
+
+                                teleportChain.EnqueueChain();
+                            }));
+                        }
+                        else
+                        {
+                            requestor.Session.Network.EnqueueSend(new GameEventWeenieError(requestor.Session, WeenieError.YoureTooBusy));
+                        }                        
+                    }
                 }
             }            
         }

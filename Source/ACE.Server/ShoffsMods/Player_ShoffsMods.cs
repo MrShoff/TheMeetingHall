@@ -5,6 +5,7 @@ using ACE.Entity.Enum.Properties;
 using ACE.Entity.Models;
 using ACE.Server.Managers;
 using ACE.Server.Network.GameMessages.Messages;
+using System;
 
 namespace ACE.Server.WorldObjects
 {
@@ -15,13 +16,12 @@ namespace ACE.Server.WorldObjects
             get
             {
                 bool playerIsInDailyDungeon = false;
-                uint playerLandblock = GetPosition(PositionType.Location).Landblock;
-                foreach (uint wcid in ShoffsMods.ModdedWeenies.DailyDungeonPortals)
+                foreach (var dd in Enum.GetValues(typeof(ShoffsMods.DailyDungeonProperties.DailyDungeon)))
                 {
-                    if (DatabaseManager.World.GetCachedWeenie(wcid).PropertiesPosition.TryGetValue(PositionType.Destination, out PropertiesPosition ddDest))
+                    if (DatabaseManager.World.GetCachedWeenie((uint)dd).PropertiesPosition.TryGetValue(PositionType.Destination, out PropertiesPosition ddDest))
                     {
-                        var lowDungeonLandblock = new Position(ddDest);
-                        playerIsInDailyDungeon = playerLandblock == lowDungeonLandblock.Landblock;
+                        var dailyDungeonLandblock = new Position(ddDest);
+                        playerIsInDailyDungeon = Location.Landblock == dailyDungeonLandblock.Landblock;
                         if (playerIsInDailyDungeon) break;
                     }
                 }

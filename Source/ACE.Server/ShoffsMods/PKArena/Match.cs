@@ -13,6 +13,7 @@ using System.Drawing;
 using System.Numerics;
 using System.Text;
 using System.Threading;
+using System.Linq;
 
 namespace ACE.Server.ShoffsMods.PKArena
 {
@@ -159,6 +160,9 @@ namespace ACE.Server.ShoffsMods.PKArena
                 SpectatorsAndTheirPriorLocation.Add(p.Guid, p.Location);
 
                 WorldManager.ThreadSafeTeleport(p, new Position(FightLocation.MidPoint));
+
+                string msg = $"[PvP Queue] You are now spectating: {string.Join(", ", TeamOne.Participants.Select(x => x.Player?.Name))} vs {string.Join(", ", TeamTwo.Participants.Select(x => x.Player?.Name))}.";
+                p.Session.Network.EnqueueSend(new GameMessageSystemChat(msg, ChatMessageType.Broadcast));
             }
         }
 
@@ -195,11 +199,11 @@ namespace ACE.Server.ShoffsMods.PKArena
             return pKArenaParticipants;
         }
 
-        public bool AllPlayersConfirmed()
+        public bool AllPlayersAcceptedMatchInvite()
         {            
             foreach (var player in GetAllParticipants())
             {
-                if (!player.AcceptedMatch)
+                if (!player.AcceptedMatchInvite)
                 {                    
                     return false;
                 }
@@ -212,6 +216,7 @@ namespace ACE.Server.ShoffsMods.PKArena
             EndTime = DateTime.Now;
             FightLocation.InUse = false;
 
+            // handle ratings
             if (teamOneWon.HasValue)
             {
                 bool DisableMatchingSameIp = PropertyManager.GetBool("disable_matching_same_ip").Item;
@@ -221,6 +226,7 @@ namespace ACE.Server.ShoffsMods.PKArena
                 }
             }
 
+            // handle spectators
             if (SpectatorsAndTheirPriorLocation != null)
             {
                 Thread.Sleep(2000);
@@ -240,6 +246,7 @@ namespace ACE.Server.ShoffsMods.PKArena
                 }
             }
 
+            // clean up
             DestroyBarriers();
 
             if (teamOneWon.HasValue)
@@ -254,9 +261,9 @@ namespace ACE.Server.ShoffsMods.PKArena
                 foreach (var participant in TeamTwo.Participants)
                 {
                     if (teamOneWon.Value)
-                        participant.HandleWin();
-                    else
                         participant.HandleDefeat();
+                    else
+                        participant.HandleWin();
                 }
             }
             else
@@ -284,21 +291,15 @@ namespace ACE.Server.ShoffsMods.PKArena
             public enum LocationType
             {
                 OneOnOne    = 0x01,
-                Team        = 0x02
+                Team        = 0x02,
+                TeamOnly    = 0x04
             }
 
             public MatchLocation(Position midPoint, LocationType type, string description)
             {
                 MidPoint = midPoint;
                 Description = description;
-                if (type == LocationType.OneOnOne)
-                {
-                    Type = LocationType.OneOnOne | LocationType.Team;
-                }
-                else
-                {
-                    Type = type;
-                }
+                Type = type;
             }
 
             private Position GetTeamOnePos()

@@ -7,6 +7,7 @@ using ACE.Entity.Enum;
 using ACE.Entity.Models;
 using ACE.Server.Entity;
 using ACE.Server.Managers;
+using ACE.Server.ShoffsMods;
 
 namespace ACE.Server.WorldObjects
 {
@@ -124,6 +125,11 @@ namespace ACE.Server.WorldObjects
                 {
                     var profile = GeneratorProfiles[i];
 
+                    if (WeenieClassId == DailyDungeonProperties.DailyDungeonGeneratorWcid)
+                    {
+                        log.Info($"profile.LinkId:{profile.LinkId};  profile.IsPlaceholder: {profile.IsPlaceholder}; ");
+                    }
+
                     // skip PlaceHolder objects
                     if (profile.IsPlaceholder)
                         continue;
@@ -148,7 +154,10 @@ namespace ACE.Server.WorldObjects
                     }
 
                     var probability = rng_selected ? GetAdjustedProbability(i) : profile.Biota.Probability;
-
+                    if (WeenieClassId == DailyDungeonProperties.DailyDungeonGeneratorWcid)
+                    {
+                        probability = 1.0f;
+                    }
                     if (rng < probability || probability == -1)
                     {
                         var numObjects = GetInitObjects(profile);
@@ -171,7 +180,7 @@ namespace ACE.Server.WorldObjects
 
                 loopcount++;
 
-                if (loopcount > 1000)
+                if (loopcount > 10)
                 {
                     log.Warn($"0x{Guid} {Name}.SelectProfilesInit(): loopcount > 1000, aborted. WCID: {WeenieClassId} - LOC: {Location.ToLOCString()}");
                     return;

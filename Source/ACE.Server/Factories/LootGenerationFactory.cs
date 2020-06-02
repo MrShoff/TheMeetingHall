@@ -1458,9 +1458,9 @@ namespace ACE.Server.Factories
 
         private static int GetWorkmanship(int tier)
         {
-            int workmanship = 0;
             int chance = ThreadSafeRandom.Next(0, 100);
 
+            int workmanship;
             switch (tier)
             {
                 case 1:
@@ -1542,6 +1542,25 @@ namespace ACE.Server.Factories
                         workmanship = 10;
                     break;
             }
+
+            //string rating = workmanship switch
+            //{
+            //    1 => "A+",
+            //    2 => "A+",
+            //    3 => "A+",
+            //    4 => "A+",
+            //    5 => "A",
+            //    6 => "B",
+            //    7 => "C",
+            //    8 => "D+",
+            //    9 => "D",
+            //    10 => "F",
+            //    _ => "-"
+            //};
+            //if ((item.ArmorLevel ?? 0) > 0 || item is Caster || item is MeleeWeapon || item is MissileLauncher)
+            //{
+            //    item.LongDesc += $"\nWorksmanship: {rating}";
+            //}
 
             return workmanship;
         }

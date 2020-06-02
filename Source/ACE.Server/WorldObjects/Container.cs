@@ -608,14 +608,11 @@ namespace ACE.Server.WorldObjects
         {
             // wait a second to start
             Thread.Sleep(250);
-            ItemMutator.DoMutation(mutant, worldObject); 
             if (mutant.Session != null)
             {
-                log.Info("4");
                 mutant.Session.Network.EnqueueSend(new GameMessageSystemChat($"You mutated the {worldObject.Name}.", ChatMessageType.Broadcast));
             }
-            
-            log.Info("6");
+            ItemMutator.DoMutation(mutant, worldObject);
         }
 
         /// <summary>

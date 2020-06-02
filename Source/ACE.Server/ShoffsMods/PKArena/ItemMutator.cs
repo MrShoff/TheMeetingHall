@@ -270,9 +270,6 @@ namespace ACE.Server.Entity
             // ==================
             //    Cantrips
             // ==================
-            item.Biota.GetOrAddKnownSpell((int)SpellId.CANTRIPWARMAGICAPTITUDE3, item.BiotaDatabaseLock, out _);
-            item.Biota.GetOrAddKnownSpell((int)SpellId.CANTRIPLIFEMAGICAPTITUDE3, item.BiotaDatabaseLock, out _);
-
             item.Biota.GetOrAddKnownSpell((int)SpellId.CANTRIPSTRENGTH3, item.BiotaDatabaseLock, out _);
             item.Biota.GetOrAddKnownSpell((int)SpellId.CANTRIPENDURANCE3, item.BiotaDatabaseLock, out _);
             item.Biota.GetOrAddKnownSpell((int)SpellId.CANTRIPCOORDINATION3, item.BiotaDatabaseLock, out _);

@@ -16,6 +16,8 @@ using ACE.Server.Entity.Actions;
 using ACE.Server.Network.GameEvent.Events;
 using ACE.Server.Network.GameMessages.Messages;
 using ACE.Server.Managers;
+using System.Diagnostics;
+using ACE.Server.ShoffsMods;
 
 namespace ACE.Server.WorldObjects
 {
@@ -622,6 +624,12 @@ namespace ACE.Server.WorldObjects
             HandlePreTeleportVisibility(newPosition);
 
             UpdatePlayerPosition(new Position(newPosition), true);
+
+            // PKL Storm
+            if (IsInDailyDungeon)
+            {
+                DailyDungeonProperties.DoPklStorm(this);
+            }
         }
 
         public void DoPreTeleportHide()

@@ -351,7 +351,7 @@ namespace ACE.Server.Network.Handlers
                 treasure = LootGenerationFactory.CreateRandomLootObjects(lootProfile, true);
                 if (treasure != null)
                 {                    
-                    treasure = tinkerer.ApplyTinks(treasure);
+                    tinkerer.ApplyTinks(treasure);
                 }                
             }            
             return treasure;

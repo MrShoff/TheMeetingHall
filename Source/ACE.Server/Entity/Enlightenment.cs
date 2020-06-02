@@ -2,6 +2,7 @@ using ACE.Entity.Enum;
 using ACE.Entity.Enum.Properties;
 using ACE.Server.WorldObjects;
 using ACE.Server.Network.GameMessages.Messages;
+using ACE.Server.Factories;
 
 namespace ACE.Server.Entity
 {
@@ -108,9 +109,17 @@ namespace ACE.Server.Entity
 
         public static void DequipAllItems(Player player)
         {
-            // how to handle burden after strength adjustment?
+            // Shoff: Using this instead of what was here (below)
             foreach (var item in player.EquippedObjects.Values)
-                player.TryDequipObjectWithNetworking(item.Guid.Full, out var _, Player.DequipObjectAction.DequipToPack);
+            {
+                player.TryDequipObjectWithNetworking(item.Guid.Full, out var _, Player.DequipObjectAction.ConsumeItem);
+                player.TryCreateInInventoryWithNetworking(item);
+            }
+
+            // Shoff: This code is not working. When you enlighten, your armor just disappears except the icons on your paperdoll. Then when you relog all your items are equipped
+            // how to handle burden after strength adjustment?
+            //foreach (var item in player.EquippedObjects.Values)
+            //    player.TryDequipObjectWithNetworking(item.Guid.Full, out var _, Player.DequipObjectAction.DequipToPack);
         }
 
         public static void RemoveAbility(Player player)
@@ -142,6 +151,15 @@ namespace ACE.Server.Entity
                 attribute.Ranks = 0;
 
                 player.Session.Network.EnqueueSend(new GameMessagePrivateUpdateAttribute(player, attribute));
+            }
+
+            // reset vitals
+            foreach (var vital in player.Vitals.Values)
+            {
+                vital.ExperienceSpent = 0;
+                vital.Ranks = 0;
+
+                player.Session.Network.EnqueueSend(new GameMessagePrivateUpdateVital(player, vital));
             }
 
             // remove skill credits except for those from:
@@ -211,9 +229,13 @@ namespace ACE.Server.Entity
 
             // scale XP
             float xpScale = CalculateXpNerf((uint)player.Enlightenment);
-            player.SetProperty(PropertyFloat.GlobalXpMod, xpScale);
+            player.UpdateProperty(player, PropertyFloat.GlobalXpMod, xpScale);
 
-            // todo: attribute reset certificate
+            // add reset certs
+            var skillResetCert = WorldObjectFactory.CreateNewWorldObject(46420);
+            var attributeResetCert = WorldObjectFactory.CreateNewWorldObject(46421);
+            player.TryCreateInInventoryWithNetworking(skillResetCert);
+            player.TryCreateInInventoryWithNetworking(attributeResetCert);
         }
 
         public static float CalculateXpNerf(uint enlightenmentLevel)

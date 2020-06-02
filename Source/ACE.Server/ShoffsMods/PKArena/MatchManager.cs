@@ -41,21 +41,26 @@ namespace ACE.Server.ShoffsMods.PKArena
 
         public static void SerializeLocations()
         {
-            var serializedLocations = Newtonsoft.Json.JsonConvert.SerializeObject(OneOnOneMatchLocations);
+            var serializedLocations = Newtonsoft.Json.JsonConvert.SerializeObject(MatchLocations);
             File.WriteAllText("OneOnOneMatchLocations.json", serializedLocations);
         }
 
         public static MatchLocation GetNextAvailableLocation(MatchLocation.LocationType type)
         {
-            var availableLocations = OneOnOneMatchLocations.Where(x => !x.InUse).ToList();
+            var availableLocations = MatchLocations.Where(x => !x.InUse).ToList();
+
             if (type == MatchLocation.LocationType.Team)
                 availableLocations.RemoveAll(x => x.Type == MatchLocation.LocationType.OneOnOne);
+            if (type == MatchLocation.LocationType.OneOnOne)
+                availableLocations.RemoveAll(x => x.Type == MatchLocation.LocationType.TeamOnly);
+
             if (availableLocations.Count == 0) return null;
             var matchLocation = availableLocations[ThreadSafeRandom.Next(0, availableLocations.Count - 1)];
+
             return matchLocation;
         }
 
-        private static List<MatchLocation> OneOnOneMatchLocations = new List<MatchLocation>()
+        private static List<MatchLocation> MatchLocations = new List<MatchLocation>()
         {
             new MatchLocation(new Position(0xB36F0008, 12f, 180f, 69.580711f, 0.0f, 0.0f, 0.0f, 0.0f), MatchLocation.LocationType.OneOnOne, "Yanshi Platform"), // Yanshi Platform
             new MatchLocation(new Position(0x15540014, 62f, 84f, 122.005249f, 0.0f, 0.0f, 0.0f, 0.0f), MatchLocation.LocationType.OneOnOne, "Mount Lethe - Volcano"), // Mount Lethe - Volcano
@@ -115,6 +120,16 @@ namespace ACE.Server.ShoffsMods.PKArena
             new MatchLocation(new Position(0x013A03BA, 90f, -70f, 30.004999f, 0.0f, 0.0f, 0.0f, 0.0f), MatchLocation.LocationType.OneOnOne, "Disco 110"), // Disco 110
             new MatchLocation(new Position(0x5C4B0106, 30f, -70f, -41.994999f, 0.0f, 0.0f, 0.0f, 0.0f), MatchLocation.LocationType.OneOnOne, "Unknown Dungeon"), // Unknown Dungeon
             new MatchLocation(new Position(0x01A80150, 35f, -65f, 0.005000f, 0.0f, 0.0f, 0.0f, 0.0f), MatchLocation.LocationType.OneOnOne, "Abandoned Arena"), // Abandoned Arena
+            new MatchLocation(new Position(0x5878014D, 170f, -330f, -59.994999f, 0.0f, 0.0f, 0.0f, 0.0f), MatchLocation.LocationType.OneOnOne, "Spirited Halls"), // Spirited Halls
+            new MatchLocation(new Position(0x8BAF0027, 101f, 154f, 64.005005f, 0.0f, 0.0f, 0.0f, 0.0f), MatchLocation.LocationType.OneOnOne, "Empyrean Power Station"), // Empyrean Power Station
+            new MatchLocation(new Position(0xB1780012, 67f, 32f, 20.004999f, 0.0f, 0.0f, 0.0f, 0.0f), MatchLocation.LocationType.Team, "Empyreal Tower"), // Empyreal Tower
+            new MatchLocation(new Position(0x5ED20005, 12f, 107f, 20.394924f, 0.0f, 0.0f, 0.0f, 0.0f), MatchLocation.LocationType.OneOnOne, "Outside the Hidden Labratory"), // Outside the Hidden Labratory
+            new MatchLocation(new Position(0x7B980012, 63f, 25f, 113.227425f, 0.0f, 0.0f, 0.0f, 0.0f), MatchLocation.LocationType.TeamOnly, "Gharun'dim Outpost"), // Gharun'dim Outpost
+            new MatchLocation(new Position(0x56530109, 6f, -18f, 0.005000f, 0.0f, 0.0f, 0.0f, 0.0f), MatchLocation.LocationType.OneOnOne, "The Citadel"), // The Citadel
+            new MatchLocation(new Position(0x480F0030, 132f, 187f, 120.005005f, 0.0f, 0.0f, 0.0f, 0.0f), MatchLocation.LocationType.OneOnOne, "Dawnsong Festival Stone"), // Dawnsong Festival Stone
+            new MatchLocation(new Position(0xCA2D003F, 180f, 157f, 168.383026f, 0.0f, 0.0f, 0.0f, 0.0f), MatchLocation.LocationType.OneOnOne, "Southern Osteth Valley"), // Southern Osteth Valley
+            new MatchLocation(new Position(0x01B1011C, 35f, -91f, -35.994999f, 0.0f, 0.0f, 0.0f, 0.0f), MatchLocation.LocationType.OneOnOne, "Lost Garden Ruins"), // Lost Garden Ruins
+            new MatchLocation(new Position(0x00B00167, 30f, -1470f, 0.110000f, 0.0f, 0.0f, 0.0f, 0.0f), MatchLocation.LocationType.OneOnOne, "Colo"), // Colo
         };
 
         private static void Queue_QueuePop(object sender, EventArgs e)
@@ -135,14 +150,14 @@ namespace ACE.Server.ShoffsMods.PKArena
         private static void WatchForNonResponders(Match matchup)
         {
             Thread.Sleep(5000);
-            List<PKArenaParticipant> participantsThatDidntAccept = matchup.GetAllParticipants().Where(x => !x.AcceptedMatch).ToList();
+            List<PKArenaParticipant> participantsThatDidntAccept = matchup.GetAllParticipants().Where(x => !x.AcceptedMatchInvite).ToList();
             foreach (var participant in participantsThatDidntAccept)
             {
                 participant.Player.Session.Network.EnqueueSend(new GameMessageSystemChat($"[PvP Queue] You have 10 seconds to accept.", ChatMessageType.Broadcast));
             }
             Thread.Sleep(5000);
             uint secondsRemaining = 5;
-            participantsThatDidntAccept = matchup.GetAllParticipants().Where(x => !x.AcceptedMatch).ToList();
+            participantsThatDidntAccept = matchup.GetAllParticipants().Where(x => !x.AcceptedMatchInvite).ToList();
             while (secondsRemaining > 0 && participantsThatDidntAccept.Count > 0)
             {
                 foreach (var participant in participantsThatDidntAccept)
@@ -151,7 +166,7 @@ namespace ACE.Server.ShoffsMods.PKArena
                 }
                 Thread.Sleep(1000);
                 secondsRemaining--;
-                participantsThatDidntAccept = matchup.GetAllParticipants().Where(x => !x.AcceptedMatch).ToList();
+                participantsThatDidntAccept = matchup.GetAllParticipants().Where(x => !x.AcceptedMatchInvite).ToList();
             }
             if (participantsThatDidntAccept.Count > 0)
             {
@@ -184,10 +199,10 @@ namespace ACE.Server.ShoffsMods.PKArena
                 var pConfirmed = matchup.GetAllParticipants().Where(x => x.PlayerGuid == playerThatConfirmed.Guid);
                 foreach(var p in pConfirmed)
                 {
-                    p.AcceptedMatch = true;
+                    p.AcceptedMatchInvite = true;
                     log.Info($"{p.Player.Name} confirmed");
                 }
-                if (matchup.AllPlayersConfirmed())
+                if (matchup.AllPlayersAcceptedMatchInvite())
                 {
                     log.Info("All players confirmed");
                     SendTheNextMatchIn();
@@ -198,6 +213,21 @@ namespace ACE.Server.ShoffsMods.PKArena
         public static void Spectate(Player p, string playerName)
         {
             if (p == null) return;
+            var inProgressParticipant = TryGetInProgressParticipant(p); ;
+            if (inProgressParticipant != null)
+            {
+                if (inProgressParticipant.IsKilled && inProgressParticipant.PlayerIsReturned)
+                {
+                    var curMatch = TryGetInProgressMatchByParticipant(inProgressParticipant);
+                    curMatch.AddSpectator(p);
+                    return;
+                }
+                else
+                {
+                    p.Session.Network.EnqueueSend(new GameMessageSystemChat($"[PvP Queue] You cannot spectate while you are alive in a current match.", ChatMessageType.Broadcast));
+                    return;
+                }
+            }
             if (matches.Where(x => x.CurrentState == State.InProgress && x.IsPlayerSpectator(p.Guid)).Count() != 0)
             {
                 p.Session.Network.EnqueueSend(new GameMessageSystemChat($"[PvP Queue] You are already spectating a fight. Try /spectate [player name] next time.", ChatMessageType.Broadcast));
@@ -205,18 +235,16 @@ namespace ACE.Server.ShoffsMods.PKArena
             }
             if (string.IsNullOrEmpty(playerName))
             {
-                bool matchFound = false;
                 foreach (var match in matches)
                 {
                     if (match.CurrentState == State.InProgress)
                     {
                         match.AddSpectator(p);
-                        matchFound = true;
-                        break;
+                        return;
                     }
                 }
-                if (!matchFound)
-                    p.Session.Network.EnqueueSend(new GameMessageSystemChat($"[PvP Queue] No match found.", ChatMessageType.Broadcast));
+                p.Session.Network.EnqueueSend(new GameMessageSystemChat($"[PvP Queue] No match found.", ChatMessageType.Broadcast));
+                return;
             }
             else
             {
@@ -252,7 +280,7 @@ namespace ACE.Server.ShoffsMods.PKArena
         private static void SendTheNextMatchIn()
         {
             RemoveOfflinePlayersFromInvitePending();
-            var matchesInQueue = matches.Where(x => x.CurrentState == State.InvitePending && x.AllPlayersConfirmed()).ToList();
+            var matchesInQueue = matches.Where(x => x.CurrentState == State.InvitePending && x.AllPlayersAcceptedMatchInvite()).ToList();
             if (matchesInQueue.Count == 0) return;
             var nextMatch = matchesInQueue[0];
             var matchLocation = GetNextAvailableLocation(nextMatch.GetAllParticipants().Count > 2 ? MatchLocation.LocationType.Team : MatchLocation.LocationType.OneOnOne);
@@ -267,7 +295,7 @@ namespace ACE.Server.ShoffsMods.PKArena
                     p.PriorLocation = p.Player.Location;
                     p.Player.Attackable = false;
 
-                    DispellNegativeEnchantments(p.Player);
+                    p.DispellNegativeEnchantments();
                     MaxVitals(p.Player);
                 }
             }
@@ -362,21 +390,6 @@ namespace ACE.Server.ShoffsMods.PKArena
             player.OnHealthUpdate();
         }
 
-        private static void DispellNegativeEnchantments(Player player)
-        {
-            List<Spell> dispellSpells = new List<Spell>()
-                    {
-                        new Spell(SpellId.DispelLifeBadOther8),
-                        new Spell(SpellId.DispelCreatureBadOther8),
-                        new Spell(SpellId.DispelItemBadOther8),
-                    };
-
-            foreach (var spell in dispellSpells)
-            {
-                player.TryCastSpell(spell, player, null, false); 
-            }
-        }
-
         private static void WatchForQuitters(Match matchup)
         {
             foreach(var p in matchup.GetAllParticipants())
@@ -414,7 +427,7 @@ namespace ACE.Server.ShoffsMods.PKArena
             List<KeyValuePair<ObjectGuid, int>> playersWarned = new List<KeyValuePair<ObjectGuid, int>>();
             while(matchup.CurrentState == State.InProgress)
             {                
-                foreach (var participant in matchup.GetAllParticipants())
+                foreach (var participant in matchup.GetAllParticipants().Where(x => !x.IsKilled))
                 {
                     if (participant.Player != null)
                     {
@@ -427,6 +440,7 @@ namespace ACE.Server.ShoffsMods.PKArena
                         {
                             if (maxWarningLimitReached)
                             {
+                                participant.Player.Session.Network.EnqueueSend(new GameMessageSystemChat($"[PvP Queue] You have been disqualified!", ChatMessageType.Broadcast));
                                 participant.HandleDeath(null, null);
                                 playersWarned.RemoveAll(x => x.Key == participant.PlayerGuid);
                                 break;
@@ -575,31 +589,32 @@ namespace ACE.Server.ShoffsMods.PKArena
             }
         }
 
-        public static void EnqueueTeam(Team team, int roomNum, bool doTeamMatchmaking)
+        public static void EnqueueTeam(Team team, int roomNum)
         {
-            PKArenaParticipant busyPlayer = null;
+            PKArenaParticipant playerInMatch = null;
+            PKArenaParticipant playerInQueue = null;
             foreach (var p in team.Participants)
             {
                 if (GetPlayerMatch(p.PlayerGuid) != null)
                 {
-                    busyPlayer = p;
+                    playerInMatch = p;
                     break;
                 }
                 if (GetPlayerQueue(p.PlayerGuid) != null)
                 {
-                    busyPlayer = p;
+                    playerInQueue = p;
                     break;
                 }
             }
 
-            if (busyPlayer != null)
+            if (playerInMatch != null || playerInQueue != null)
             {
-                var bPlayer = PlayerManager.FindByGuid(busyPlayer.PlayerGuid);
+                var bPlayer = PlayerManager.FindByGuid((playerInMatch ?? playerInQueue).PlayerGuid);
                 foreach (var participant in team.Participants)
                 {
                     if (participant.Player != null)
                     {
-                        participant.Player.Session.Network.EnqueueSend(new GameMessageSystemChat($"[PvP Queue] Queue failed. {bPlayer.Name} is already in a queue or match.", ChatMessageType.Broadcast));
+                        participant.Player.Session.Network.EnqueueSend(new GameMessageSystemChat($"[PvP Queue] Queue failed. {bPlayer.Name} is already in a {(playerInQueue == null ? "match" : "queue")}.", ChatMessageType.Broadcast));
                     }
                 }
             }
@@ -618,7 +633,7 @@ namespace ACE.Server.ShoffsMods.PKArena
             else
             {
                 var roomQueue = new Queue();
-                if (roomNum == -1000000)
+                if (roomNum == -1000000) // matchmaking queue
                     roomQueue.DoTeamMatchmaking = true;
                 roomQueue.QueuePop += Queue_QueuePop;
                 roomQueue.Enqueue(team);

@@ -10,6 +10,7 @@ using ACE.Server.Entity;
 using ACE.Server.Managers;
 using ACE.Server.Network.GameEvent.Events;
 using ACE.Server.Network.GameMessages.Messages;
+using ACE.Server.ShoffsMods;
 
 namespace ACE.Server.WorldObjects
 {

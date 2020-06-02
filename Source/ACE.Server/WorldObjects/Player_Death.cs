@@ -190,10 +190,6 @@ namespace ACE.Server.WorldObjects
                 Session.Network.EnqueueSend(msgSelfInflictedDeath);
             }
 
-            // update vitae
-            // players who died in a PKLite fight do not accrue vitae
-            if (!IsPKLiteDeath(topDamager))
-                InflictVitaePenalty();
 
             var inProgressParticipant = MatchManager.TryGetInProgressParticipant(this);
 
@@ -213,7 +209,11 @@ namespace ACE.Server.WorldObjects
                 inProgressParticipant.HandleDeath(lastDamager, topDamager);
                 return;
             }
-            
+
+            // update vitae
+            // players who died in a PKLite fight do not accrue vitae
+            if (!IsPKLiteDeath(topDamager))
+                InflictVitaePenalty();
 
             // wait for the death animation to finish
             var dieChain = new ActionChain();

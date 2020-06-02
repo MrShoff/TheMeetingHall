@@ -13,6 +13,7 @@ using ACE.Server.Network.GameEvent.Events;
 using ACE.Server.Network.GameMessages.Messages;
 using ACE.Server.Network.Sequence;
 using ACE.Server.Network.Structure;
+using ACE.Server.ShoffsMods;
 
 namespace ACE.Server.WorldObjects
 {
@@ -102,10 +103,10 @@ namespace ACE.Server.WorldObjects
 
                     Session.Network.EnqueueSend(new GameEventWeenieError(Session, WeenieError.YouAreNonPKAgain));
 
-                    if (IsInDailyDungeon && !IsAdmin && !IsSentinel)
+                    if (IsInDailyDungeon)
                     {
-                        WorldManager.ThreadSafeTeleport(this, new Position(Sanctuary));
-                        Session.Network.EnqueueSend(new GameMessageSystemChat("You have been removed from the Daily Dungeon due to your NPK status.\nVisit the Altar of Bael'Zharon or type /pkl", ChatMessageType.Broadcast));
+                        DailyDungeonProperties.DoPklStorm(this);
+                        DailyDungeonProperties.DoAllegianceCheck(this);
                     }
                 });
                 actionChain.EnqueueChain();

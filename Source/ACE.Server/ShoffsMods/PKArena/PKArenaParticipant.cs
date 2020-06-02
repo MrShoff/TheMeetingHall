@@ -21,16 +21,14 @@ namespace ACE.Server.WorldObjects
     {
         public Position PriorLocation { get; set; }
         public bool AcceptedQueue { get; set; } = false;
-        public bool AcceptedMatch { get; set; } = false;
+        public bool AcceptedMatchInvite { get; set; } = false;
         public bool IsKilled { get; set; } = false;
         public Player? Player { get => PlayerManager.GetOnlinePlayer(PlayerGuid); }
         public OfflinePlayer OfflinePlayer { get => PlayerManager.GetOfflinePlayer(PlayerGuid); }
-        public List<ObjectGuid> Spectators { get; set; } = new List<ObjectGuid>();       
+        public bool PlayerIsReturned { get; private set; } = false;
+        public ObjectGuid PlayerGuid { get; private set; }
 
 
-
-        public ObjectGuid PlayerGuid;
-        private bool PlayerIsReturned = false;
         private int PriorRating;
 
         public PKArenaParticipant(ObjectGuid playerGuid)
@@ -61,11 +59,13 @@ namespace ACE.Server.WorldObjects
         {
             IsKilled = true;
 
-            MatchManager.HandleParticipantKilled(this);
+            // return player to previous location
             if (!PlayerIsReturned)
             {
                 ReturnPlayer();
             }
+
+            MatchManager.HandleParticipantKilled(this);
         }
 
         public void HandleDraw()
@@ -83,6 +83,7 @@ namespace ACE.Server.WorldObjects
 
         public void HandleWin()
         {
+            // broadcast ratings change
             if (Player != null)
             {
                 Player.Session.Network.EnqueueSend(new GameMessageSystemChat($"Congratulations! You won in the PvP queue!", ChatMessageType.Broadcast));
@@ -91,6 +92,8 @@ namespace ACE.Server.WorldObjects
                     Player.Session.Network.EnqueueSend(new GameMessageSystemChat($"Your new rating is {Player.ChessRank} (+{Player.ChessRank - PriorRating}).", ChatMessageType.Broadcast));
                 }
             }
+
+            // return player to previous location
             if (!PlayerIsReturned)
             {
                 ReturnPlayer();
@@ -99,6 +102,7 @@ namespace ACE.Server.WorldObjects
 
         public void HandleDefeat()
         {
+            // broadcast ratings change
             if (Player != null)
             {
                 Player.Session.Network.EnqueueSend(new GameMessageSystemChat($"You have been defated in the PvP queue.", ChatMessageType.Broadcast));
@@ -107,9 +111,26 @@ namespace ACE.Server.WorldObjects
                     Player.Session.Network.EnqueueSend(new GameMessageSystemChat($"Your new rating is {Player.ChessRank} ({Player.ChessRank - PriorRating}).", ChatMessageType.Broadcast));
                 }
             }
+
+            // return player to previous location
             if (!PlayerIsReturned)
             {
                 ReturnPlayer();
+            }
+        }
+
+        public void DispellNegativeEnchantments()
+        {
+            if (Player == null) return;
+
+            List<Spell> dispellSpells = new List<Spell>()
+                    {
+                        new Spell(SpellId.DispelAllBadOther8)
+                    };
+
+            foreach (var spell in dispellSpells)
+            {
+                Player.TryCastSpell(spell, Player, null, false);
             }
         }
 
@@ -135,7 +156,7 @@ namespace ACE.Server.WorldObjects
                 int pkLevel = curPlayer.GetProperty(PropertyInt.PkLevelModifier) ?? 0;
                 curPlayer.SetProperty(PropertyInt.PlayerKillerStatus, (int)((PKLevel)pkLevel == PKLevel.PK ? PlayerKillerStatus.PK : PlayerKillerStatus.NPK));
             }
-            curPlayer.SetProperty(PropertyBool.Attackable, true);
+            curPlayer.SetProperty(PropertyBool.Attackable, true);            
 
             // move them back to where they were
             if (Player != null)
@@ -151,6 +172,7 @@ namespace ACE.Server.WorldObjects
                 dieChain.AddAction(Player, () =>
                 {
                     ThreadSafeTeleportOnDeath(); // enter portal space
+                    DispellNegativeEnchantments();
 
                     if (Player != null)
                     {
