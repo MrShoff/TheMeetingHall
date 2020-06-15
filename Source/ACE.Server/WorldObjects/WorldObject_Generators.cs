@@ -125,11 +125,6 @@ namespace ACE.Server.WorldObjects
                 {
                     var profile = GeneratorProfiles[i];
 
-                    if (WeenieClassId == DailyDungeonProperties.DailyDungeonGeneratorWcid)
-                    {
-                        log.Info($"profile.LinkId:{profile.LinkId};  profile.IsPlaceholder: {profile.IsPlaceholder}; ");
-                    }
-
                     // skip PlaceHolder objects
                     if (profile.IsPlaceholder)
                         continue;

@@ -62,7 +62,9 @@ namespace ACE.Server.WorldObjects
                 var playerKiller = lastDamager.TryGetAttacker() as Player;
 
                 if (playerKiller != null)
+                {
                     playerKiller.Session.Network.EnqueueSend(new GameEventKillerNotification(playerKiller.Session, killerMsg));
+                }
             }
             return deathMessage;
         }

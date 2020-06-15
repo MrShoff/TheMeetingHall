@@ -116,7 +116,8 @@ namespace ACE.Server.ShoffsMods
                     ApplyMeleeWeaponTinks(wo, player);
                     break;
                 case ItemType.Jewelry:
-                    ApplyJewelryTinks(wo, player);
+                    // ApplyJewelryTinks(wo, player);
+                    // warrior's vitality doesn't seem to work atm
                     break;
                 default:
                     return;
@@ -172,6 +173,19 @@ namespace ACE.Server.ShoffsMods
                 // get num of tinks to apply based on workmanshop
                 int? tinksToApply = GetNumTinksToApply(armor);
                 int tinksLeft = tinksToApply ?? 0;
+
+                // if it is high value & low burden, tink it as a DI
+                if (tinksLeft > 0 && armor.Value > 90000 && armor.EncumbranceVal < 100)
+                {
+                    WorldObject goldSalvage = GeneratePhantomSalvage(MaterialType.Gold);
+                    ApplyInscription(armor, player, $"Tinked {tinksLeft}x with {goldSalvage.Name}");
+                    while (tinksLeft > 0)
+                    {
+                        RecipeManager.Tinkering_ModifyItem(player, goldSalvage, armor);
+                        tinksLeft--;
+                    }
+                    return;
+                }
 
                 // chance to get magic d, melee d, or missile d imbue   
                 if (ThreadSafeRandom.Next(1, imbueArmorChance.Denominator) <= imbueArmorChance.Numerator && tinksLeft > 0)
@@ -267,14 +281,21 @@ namespace ACE.Server.ShoffsMods
                 if (tinksLeft > 0)
                 {
                     WorldObject remainingTinksSalvage = null;
-                    switch (ThreadSafeRandom.Next(1, 2))
+                    if ((caster.ElementalDamageMod ?? 0) > 0)
                     {
-                        case 1:
-                            remainingTinksSalvage = GeneratePhantomSalvage(MaterialType.Brass);
-                            break;
-                        case 2:
-                            remainingTinksSalvage = GeneratePhantomSalvage(MaterialType.GreenGarnet);
-                            break;
+                        switch (ThreadSafeRandom.Next(1, 2))
+                        {
+                            case 1:
+                                remainingTinksSalvage = GeneratePhantomSalvage(MaterialType.Brass);
+                                break;
+                            case 2:
+                                remainingTinksSalvage = GeneratePhantomSalvage(MaterialType.GreenGarnet);
+                                break;
+                        }
+                    }
+                    else
+                    {
+                        remainingTinksSalvage = GeneratePhantomSalvage(MaterialType.Brass);
                     }
                     ApplyInscription(caster, player, $"Tinked {tinksLeft}x with {remainingTinksSalvage.Name}");
                     while (tinksLeft > 0)

@@ -169,7 +169,7 @@ namespace ACE.Server.Entity
         public static void RemoveAetheria(Player player)
         {
             // todo: remove aetheria quest flag
-            player.UpdateProperty(player, PropertyInt.AetheriaBitfield, 0);
+            //player.UpdateProperty(player, PropertyInt.AetheriaBitfield, 0);
         }
 
         public static void RemoveLuminance(Player player)

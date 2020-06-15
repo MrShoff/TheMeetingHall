@@ -38,41 +38,7 @@ namespace ACE.Server.Command.Handlers
         [CommandHandler("testfunc", AccessLevel.Developer, CommandHandlerFlag.RequiresWorld, 0)]
         public static void HandleTestFunc(Session session, params string[] parameters)
         {
-            //Task.Factory.StartNew(() => WispWriter.WriteWispString("3", session.Player.Location.InFrontOf(10), WispWriter.Color.Blue, 0.8));
-            //Thread.Sleep(1000);
-            //Task.Factory.StartNew(() => WispWriter.WriteWispString("2", session.Player.Location.InFrontOf(10), WispWriter.Color.Blue, 0.8));
-            //Thread.Sleep(1000);
-            //Task.Factory.StartNew(() => WispWriter.WriteWispString("1", session.Player.Location.InFrontOf(10), WispWriter.Color.Blue, 0.8));
-            //Thread.Sleep(1000);
-            Task.Factory.StartNew(() => WispWriter.WriteWispString("FIGHT", session.Player.Location.InFrontOf(10), WispWriter.Color.Red, 3));
-        }
-
-        [CommandHandler("getmyenlightenmentcerts", AccessLevel.Player, CommandHandlerFlag.RequiresWorld, 0)]
-        public static void HandleGetEnlightenmentCerts(Session session, params string[] parameters)
-        {
-            var certs = session.Player.Inventory.Values.Where(x => x.WeenieClassId == 46420 || x.WeenieClassId == 46421);
-            if (certs.Any())
-            {
-                session.Network.EnqueueSend(new GameMessageSystemChat($"Wtf dude. I'm telling Shoff.", ChatMessageType.Broadcast));
-            }
-            else
-            {
-                if (session.Player.Enlightenment > 0)
-                {
-                    // add reset certs
-                    var skillResetCert = WorldObjectFactory.CreateNewWorldObject(46420);
-                    var attributeResetCert = WorldObjectFactory.CreateNewWorldObject(46421);
-                    session.Player.TryCreateInInventoryWithNetworking(skillResetCert);
-                    session.Player.TryCreateInInventoryWithNetworking(attributeResetCert);
-
-                    session.Network.EnqueueSend(new GameMessageSystemChat($"The free reset certificates have been added to your inventory. Please don't use this temporary command again.", ChatMessageType.Broadcast));
-                }
-                else
-                {
-                    session.Network.EnqueueSend(new GameMessageSystemChat($"This temporary command is for Enlightened players only.", ChatMessageType.Broadcast));
-                }
-            }
-
+            
         }
 
         [CommandHandler("sortinv", AccessLevel.Developer, CommandHandlerFlag.RequiresWorld, 0)]
@@ -166,8 +132,7 @@ Queue system commands:
   * /q me - Queues you to the appropriate solo-queue for a 1v1 duel. You will be given assigned a Skill Rating from these fights that is displayed on your ID panel as your Chess Rank.
   * /q me team - Queues you for match-making with other players for an evenly matched team fight.
   
-  * /q us - Queues your fellowship for an evenly matched team fight.
-  * /q us team - Queues your fellowship for match-making with other players for an evenly matched team fight.
+  * /q us - Queues your fellowship for match-making with other players for an evenly matched team fight.
   * NOTE: Evenly matched refers to the number of players on a team.
   
   * /dq - Dequeues you (and your fellowship) from the PvP queue.
@@ -178,20 +143,17 @@ Queue system commands:
             if (parameters.Length >= 1)
             {
                 var fellowshipMembers = session.Player.GetFellowshipTargets();
-                int roomNum = fellowshipMembers.Count * -1;
-                roomNum = session.Player.Level > 275 ? session.Player.Level ?? 0 * -1 : roomNum;
-                bool doTeamMatchmaking = false;
+                int roomNum = 0;
                 if (parameters.Length >= 2)
                 {
                     if (parameters[1].Equals("team", StringComparison.InvariantCultureIgnoreCase))
                     {
-                        doTeamMatchmaking = true;
                         roomNum = -1000000;
                         if (parameters.Length == 3)
                         {
                             if (int.TryParse(parameters[2], out int n))
                             {
-                                session.Network.EnqueueSend(new GameMessageSystemChat($"Private rooms aren't available with team matchmaking queue.", ChatMessageType.Broadcast));
+                                session.Network.EnqueueSend(new GameMessageSystemChat($"Private rooms aren't available with team matchmaking queue. Using standard matchmaking queue.", ChatMessageType.Broadcast));
                             }
                         }
                     }
@@ -199,7 +161,7 @@ Queue system commands:
                     {
                         if (int.TryParse(parameters[1], out int n))
                         {
-                            if (n >= 0)
+                            if (n > 0)
                             {
                                 roomNum = n;
                             }
@@ -210,6 +172,10 @@ Queue system commands:
                 {                    
                     if (session.Player != null)
                     {
+                        // if player didn't set a private room num, assign them the standard 1v1 queue
+                        if (roomNum == 0)
+                            roomNum = session.Player.Level > 275 ? session.Player.Level ?? 0 * -1 : -1;
+
                         Team team = new Team();
                         PKArenaParticipant me = new PKArenaParticipant(session.Player.Guid);
                         team.Participants.Add(me);
@@ -225,12 +191,7 @@ Queue system commands:
                     }
                     else
                     {
-                        if (doTeamMatchmaking && fellowshipMembers.Count > 6)
-                        {
-                            session.Network.EnqueueSend(new GameMessageSystemChat($"The team match-making queue is only available for fellowships of 6 or less. Your fellowship has {fellowshipMembers.Count} member{(fellowshipMembers.Count > 1 ? "s" : "")}.", ChatMessageType.Broadcast));
-                            return;
-                        }
-
+                        roomNum = -1000000;
                         var team = new Team();
                         fellowshipMembers.ForEach(x => team.Participants.Add(new PKArenaParticipant(x.Guid)));
                         SendMatchConfirmation(team, session.Player, roomNum);
@@ -646,7 +607,7 @@ ENLIGHTENMENT:
         /// Kills vitae for duelists
         /// </summary>
         [CommandHandler("killvp", AccessLevel.Player, CommandHandlerFlag.RequiresWorld, 0,
-            "Kills vitae for duelists")]
+            "Kills vitae for mutants and duelists")]
         public static void HandleKillVp(Session session, params string[] parameters)
         {
             if (session.Player.Level > 275) // only available to duelists & mutants

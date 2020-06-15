@@ -67,7 +67,7 @@ namespace ACE.Server.WorldObjects
             // this function is only called at the very beginning, to start the process.
             if (shareType.HasFlag(ShareType.Allegiance))
                 UpdateXpAllegiance(amount);
-
+            
             // only certain types of XP are granted to items
             if (xpType == XpType.Kill || xpType == XpType.Quest)
                 GrantItemXP(amount);

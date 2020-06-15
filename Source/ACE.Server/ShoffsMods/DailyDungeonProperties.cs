@@ -22,6 +22,22 @@ namespace ACE.Server.ShoffsMods
             High = 21747003
         }
 
+        public static bool DestinationIsDailyDungeon(Portal port)
+        {
+            foreach (var wcid in GetDailyDungeonWcids())
+            {
+                var ddWeenie = DatabaseManager.World.GetCachedWeenie(wcid);
+                if (ddWeenie.PropertiesPosition.TryGetValue(PositionType.Destination, out var dest))
+                {
+                    if (new Position(dest).Equals(port.Destination))
+                    {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
         public const uint DailyDungeonGeneratorWcid = 21747009;
         public const uint MaxAllegiancePlayerLimit = 9;
 
@@ -118,16 +134,21 @@ namespace ACE.Server.ShoffsMods
             List<Player> playersOnCurLandblock = new List<Player>();
 
             // get portal destination
-            if (DatabaseManager.World.GetCachedWeenie((uint)dd).PropertiesPosition.TryGetValue(PositionType.Destination, out PropertiesPosition ddDest))
+            var ddPortal = DatabaseManager.World.GetCachedWeenie((uint)dd);
+            if (ddPortal != null && ddPortal.PropertiesPosition != null)
             {
-                // get landblock
-                var landblockId = new LandblockId(ddDest.ObjCellId);
-                var curLandblock = LandblockManager.GetLandblock(landblockId, false);
+                if (ddPortal.PropertiesPosition.TryGetValue(PositionType.Destination, out PropertiesPosition ddDest))
+                {
+                    // get landblock
+                    var landblockId = new LandblockId(ddDest.ObjCellId);
+                    var curLandblock = LandblockManager.GetLandblock(landblockId, false);
 
-                // get players in daily dungeon landblock
-                PlayerManager.GetAllOnline().ForEach(x => playersOnCurLandblock.Add(curLandblock.GetObject(x.Guid) as Player));
-                playersOnCurLandblock.RemoveAll(x => x == null);
+                    // get players in daily dungeon landblock
+                    PlayerManager.GetAllOnline().ForEach(x => playersOnCurLandblock.Add(curLandblock.GetObject(x.Guid) as Player));
+                    playersOnCurLandblock.RemoveAll(x => x == null);
+                }
             }
+            
             return playersOnCurLandblock;
         }
 

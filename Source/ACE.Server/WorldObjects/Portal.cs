@@ -250,9 +250,13 @@ namespace ACE.Server.WorldObjects
 #if DEBUG
             // player.Session.Network.EnqueueSend(new GameMessageSystemChat("Portal sending player to destination", ChatMessageType.System));
 #endif
-            if (Enum.IsDefined(typeof(DailyDungeonProperties.DailyDungeon), WeenieClassId))
+            if (DailyDungeonProperties.DestinationIsDailyDungeon(this))
             {
-                log.Info($"[DEBUG] {player.Name} using daily dungeon portal detected");
+                if (player.Level > 275 && player.Level < 999)
+                {
+                    player.Session.Network.EnqueueSend(new GameMessageSystemChat($"[Daily Dungeon] No mutants allowed.", ChatMessageType.Magic));
+                    return;
+                }
                 int numInSameGuild = 0;
                 var players = DailyDungeonProperties.GetPlayers((DailyDungeonProperties.DailyDungeon)WeenieClassId);
                 foreach(var p in players)

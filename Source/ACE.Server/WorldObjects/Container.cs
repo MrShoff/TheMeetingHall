@@ -489,14 +489,13 @@ namespace ACE.Server.WorldObjects
                 {
                     if (!((worldObject.WieldDifficulty >= 300 && worldObject.WieldRequirements == WieldRequirement.Level) || (worldObject.Attuned == AttunedStatus.Attuned && worldObject.Bonded == BondedStatus.Bonded)))
                     {
-                        log.Info("-------------1");
                         // or cosmetic items, otherwise reject
                         //   check to see if its already tailor kitted
                         //   if its not, mutate it
                         if (!(worldObject is Gem) || !worldObject.IconOverlayId.HasValue || worldObject.IconOverlayId.Value != 100667895)
                         {
-                            var wcid = Tailoring.GetArmorWCID(worldObject.ValidLocations ?? 0);
-                            if (wcid != null)
+                            var wcid = Tailoring.GetArmorWCID(worldObject.ValidLocations ?? 0);                            
+                            if (wcid != null && !worldObject.IsShield)
                             {
                                 mutateItem = true;
                             }

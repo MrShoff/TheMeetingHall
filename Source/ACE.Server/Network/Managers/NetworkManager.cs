@@ -14,6 +14,7 @@ using ACE.Server.Managers;
 using ACE.Server.Network.Packets;
 using ACE.Server.Network.Handlers;
 using ACE.Server.Network.Enum;
+using ACE.Database;
 
 namespace ACE.Server.Network.Managers
 {
@@ -115,6 +116,29 @@ namespace ACE.Server.Network.Managers
                         log.DebugFormat("Login Request from {0}", endPoint);
 
                         var ipAllowsUnlimited = ConfigManager.Config.Server.Network.AllowUnlimitedSessionsFromIPAddresses.Contains(endPoint.Address.ToString());
+
+                        // check to see if its an admin account or mutant-only account logging in
+                        PacketInboundLoginRequest loginRequest = new PacketInboundLoginRequest(packet);
+                        packet.Data.Position = 0;
+
+                        var account = DatabaseManager.Authentication.GetAccountByName(loginRequest.Account);
+                        if (account != null)
+                        {
+                            if (account.AccessLevel > 0)
+                            {
+                                ipAllowsUnlimited = true;
+                            }
+                            else
+                            {
+                                var playersOnAccount = PlayerManager.GetAllPlayers().Where(x => x.Account.AccountId == account.AccountId);
+                                var numCharsBetween10And275 = playersOnAccount.Select(x => x.Level).Where(x => x >= 10 && x <= 275);
+                                if (!numCharsBetween10And275.Any())
+                                {
+                                    ipAllowsUnlimited = true;
+                                }
+                            }
+                        }                            
+                        
                         if (ipAllowsUnlimited || ConfigManager.Config.Server.Network.MaximumAllowedSessionsPerIPAddress == -1 || GetSessionEndpointTotalByAddressCount(endPoint.Address) < ConfigManager.Config.Server.Network.MaximumAllowedSessionsPerIPAddress)
                         {
                             var session = FindOrCreateSession(connectionListener, endPoint);
@@ -138,7 +162,7 @@ namespace ACE.Server.Network.Managers
                         }
                         else
                         {
-                            log.InfoFormat("Login Request from {0} rejected. Session would exceed MaximumAllowedSessionsPerIPAddress limit.", endPoint);
+                            log.DebugFormat("Login Request from {0} rejected. Session would exceed MaximumAllowedSessionsPerIPAddress limit.", endPoint);
                             SendLoginRequestReject(connectionListener, endPoint, CharacterError.LogonServerFull);
                         }
                     }
@@ -214,7 +238,18 @@ namespace ACE.Server.Network.Managers
                 foreach (var s in sessionMap)
                 {
                     if (s != null)
-                        ipAddresses.Add(s.EndPoint.Address);
+                    {
+                        // don't count admin accounts
+                        var account = DatabaseManager.Authentication.GetAccountByName(s.Account);
+                        if (account.AccessLevel > 0)
+                            continue;
+
+                        // don't count mutant/mule accounts
+                        var playersOnAccount = PlayerManager.GetAllPlayers().Where(x => x.Account.AccountId == account.AccountId);
+                        var numCharsBetween10And275 = playersOnAccount.Select(x => x.Level).Where(x => x >= 10 && x <= 275);
+                        if (numCharsBetween10And275.Any())
+                            ipAddresses.Add(s.EndPoint.Address);
+                    }
                 }
 
                 return ipAddresses.Count;

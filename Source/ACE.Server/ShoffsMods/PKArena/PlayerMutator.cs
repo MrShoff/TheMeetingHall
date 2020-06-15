@@ -136,6 +136,7 @@ namespace ACE.Server.ShoffsMods.PKArena
 
             target.TrainSkill(Skill.WarMagic);
             target.TrainSkill(Skill.LifeMagic);
+            target.TrainSkill(Skill.ItemEnchantment);
 
             target.SpecializeSkill(Skill.WarMagic);
             target.SpecializeSkill(Skill.LifeMagic);
@@ -209,6 +210,7 @@ namespace ACE.Server.ShoffsMods.PKArena
             target.TrainSkill(Skill.LifeMagic);
             target.TrainSkill(Skill.ArcaneLore);
             target.TrainSkill(Skill.Fletching);
+            target.TrainSkill(Skill.ItemEnchantment);
 
             target.SpecializeSkill(Skill.MissileWeapons);
             target.SpecializeSkill(Skill.TwoHandedCombat);
