@@ -30,7 +30,7 @@ namespace ACE.Server.WorldObjects
 
             // apply xp modifier
             var modifier = PropertyManager.GetDouble("xp_modifier").Item;
-            var enchantment = EnchantmentManager.GetXPMod();
+            //var enchantment = EnchantmentManager.GetXPMod();
 
             // should this be passed upstream to fellowship / allegiance?
             var enchantment = GetXPAndLuminanceModifier(xpType);

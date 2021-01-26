@@ -153,62 +153,11 @@ namespace ACE.Server.Factories
                     }
                 }
 
-            return loot;
-        }
-
-        public static WorldObject CreateRandomLootObjects(TreasureDeath profile, bool isMagical, LootBias lootBias = LootBias.UnBiased)
-        {
-            WorldObject wo;
-
-            // Adjusting rolls for changing drop rates for clothing - HarliQ 11/11/19 
-
-            var type = lootBias switch
+                return loot;
+            }
+            finally
             {
-                LootBias.Armor => 30,
-                LootBias.Weapons => 60,
-                LootBias.Jewelry => 90,
-                _ => ThreadSafeRandom.Next(1, 100),
-            };
-
-
-            // converting to a percentage base roll for items (to better align with retail drop rate data from Magnus) - HarliQ 11/11/19
-            // Gems 14%
-            // Armor 24%
-            // Weapons 30%
-            // Clothing 14%
-            // Jewelry 18%
-
-            switch (type)
-            {
-                case var rate when (rate < 15):
-                    // jewels (Gems)
-                    wo = CreateJewels(profile.Tier, isMagical);
-                    return wo;
-                case var rate when (rate > 14 && rate < 39):
-                    //armor
-                    wo = CreateArmor(profile, isMagical, true, lootBias);
-                    return wo;
-                case var rate when (rate > 38 && rate < 53):
-                    // clothing (shirts/pants)
-                    wo = CreateArmor(profile, isMagical, false, lootBias);
-                    return wo;
-                case var rate when (rate > 52 && rate < 83):
-                    // weapons (Melee/Missile/Casters)
-                    wo = CreateWeapon(profile, isMagical);
-                    return wo;
-                case var rate when (rate > 83 && rate < 93):
-                    // jewelry
-                    wo = CreateJewelry(profile, isMagical);
-                    break;
-                default:
-                    if (isMagical)
-                        wo = CreateJewelry(profile, isMagical); // jewelry
-                    else
-                        // Added Dinnerware at tail end of distribution, as
-                        // they are mutable loot drops that don't belong with the non-mutable drops
-                        // TODO: Will likely need some adjustment/fine tuning
-                        wo = CreateDinnerware(profile.Tier); // dinnerware
-                    break;
+                ServerPerformanceMonitor.AddToCumulativeEvent(ServerPerformanceMonitor.CumulativeEventHistoryType.LootGenerationFactory_CreateRandomLootObjects, stopwatch.Value.Elapsed.TotalSeconds);
             }
         }
 
@@ -457,7 +406,7 @@ namespace ACE.Server.Factories
         /// <summary>
         /// Returns an appropriate material type for the World Object based on its loot tier.
         /// </summary>
-        private static MaterialType GetMaterialType(WorldObject wo, int tier)
+        public static MaterialType GetMaterialType(WorldObject wo, int tier)
         {
             if (wo.TsysMutationData == null)
             {

@@ -61,7 +61,7 @@ namespace ACE.Server.Command.Handlers
         {
             float xpScale = 1.0f + session.Player.AugmentationBonusXp * 0.05f; // quick learner aug. this gets applied first, then multiplied by the following
 
-            xpScale *= session.Player.EnchantmentManager.GetXPMod(); // augmented understanding trinket
+            xpScale *= session.Player.GetXPAndLuminanceModifier(XpType.Kill); // augmented understanding trinket
             xpScale *= (float)(session.Player.GetProperty(PropertyFloat.GlobalXpMod) ?? 1.0f); // player xp modifier
 
             if (session.Player.IsInDailyDungeon)
@@ -337,7 +337,7 @@ ENLIGHTENMENT:
                             var spellFreeRide = DatabaseManager.World.GetCachedSpell((uint)SpellId.PortalSendHoltburg); // Free Ride to Holtburg
                             var holtDrop = new Position(spellFreeRide.PositionObjCellId.Value, spellFreeRide.PositionOriginX.Value, spellFreeRide.PositionOriginY.Value, spellFreeRide.PositionOriginZ.Value, spellFreeRide.PositionAnglesX.Value, spellFreeRide.PositionAnglesY.Value, spellFreeRide.PositionAnglesZ.Value, spellFreeRide.PositionAnglesW.Value);
 
-                            Enlightenment.HandleEnlightenment(requestor);
+                            Enlightenment.HandleEnlightenment(null, requestor);
 
                             WorldManager.ThreadSafeTeleport(requestor, holtDrop, new ActionEventDelegate(() =>
                             {

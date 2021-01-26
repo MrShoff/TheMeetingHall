@@ -299,8 +299,8 @@ namespace ACE.Server.Entity
             item.Biota.GetOrAddKnownSpell((int)SpellId.WarMagicMasteryOther8, item.BiotaDatabaseLock, out _);
             item.Biota.GetOrAddKnownSpell((int)SpellId.LifeMagicMasteryOther8, item.BiotaDatabaseLock, out _);
             item.Biota.GetOrAddKnownSpell((int)SpellId.TwoHandedMasteryOther8, item.BiotaDatabaseLock, out _);
-            item.Biota.GetOrAddKnownSpell((int)SpellId.CrossbowMasteryOther8, item.BiotaDatabaseLock, out _); // Incantation of Missile Weapon Mastery Other
-            item.Biota.GetOrAddKnownSpell((int)SpellId.SwordMasteryOther8, item.BiotaDatabaseLock, out _); // Incantation of Heavy Weapon Mastery Other
+            item.Biota.GetOrAddKnownSpell((int)SpellId.MissileWeaponsMasteryOther8, item.BiotaDatabaseLock, out _); 
+            item.Biota.GetOrAddKnownSpell((int)SpellId.HeavyWeaponsMasteryOther8, item.BiotaDatabaseLock, out _); 
             item.Biota.GetOrAddKnownSpell((int)SpellId.DualWieldMasteryOther8, item.BiotaDatabaseLock, out _);
 
             item.Biota.GetOrAddKnownSpell((int)SpellId.DeceptionMasteryOther8, item.BiotaDatabaseLock, out _);

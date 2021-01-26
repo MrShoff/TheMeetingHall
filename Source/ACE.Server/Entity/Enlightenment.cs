@@ -59,7 +59,6 @@ namespace ACE.Server.Entity
             AddPerks(npc, player);
 
             player.SaveBiotaToDatabase();
-            AddPerks(player);
 
             player.PlayParticleEffect(PlayScript.WeddingBliss, player.Guid);
         }
