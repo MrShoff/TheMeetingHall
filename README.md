@@ -39,3 +39,6 @@ Please note that this project is released with a [Contributor Code of Conduct](h
 
 ## Contact
 * [Discord Channel](https://discord.gg/C2WzhP9)
+
+## Wiki
+* The Meeting Hall Wiki: http://the-meeting-hall.wikidot.com/
