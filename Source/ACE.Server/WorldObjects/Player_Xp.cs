@@ -31,9 +31,11 @@ namespace ACE.Server.WorldObjects
             // apply xp modifier
             var modifier = PropertyManager.GetDouble("xp_modifier").Item;
             var enchantment = EnchantmentManager.GetXPMod();
-            var globalMod = GetProperty(PropertyFloat.GlobalXpMod) ?? 1.0f;
 
-            var m_amount = (long)Math.Round(amount * enchantment * modifier * globalMod);
+            // should this be passed upstream to fellowship / allegiance?
+            var enchantment = GetXPAndLuminanceModifier(xpType);
+
+            var m_amount = (long)Math.Round(amount * enchantment * modifier);
 
             if (m_amount < 0)
             {
@@ -61,7 +63,8 @@ namespace ACE.Server.WorldObjects
                 return;
             }
 
-            UpdateXpAndLevel(amount, xpType);
+            // Make sure UpdateXpAndLevel is done on this players thread
+            EnqueueAction(new ActionEventDelegate(() => UpdateXpAndLevel(amount, xpType)));
 
             // for passing XP up the allegiance chain,
             // this function is only called at the very beginning, to start the process.
@@ -125,7 +128,16 @@ namespace ACE.Server.WorldObjects
         /// <param name="amount">The amount of XP to apply to the vitae penalty</param>
         public void UpdateXpVitae(long amount)
         {
-            var vitaePenalty = EnchantmentManager.GetVitae().StatModValue;
+            var vitae = EnchantmentManager.GetVitae();
+
+            if (vitae == null)
+            {
+                log.Error($"{Name}.UpdateXpVitae({amount}) vitae null, likely due to cross-thread operation or corrupt EnchantmentManager cache. Please report this.");
+                log.Error(Environment.StackTrace);
+                return;
+            }
+
+            var vitaePenalty = vitae.StatModValue;
             var startPenalty = vitaePenalty;
 
             var maxPool = (int)VitaeCPPoolThreshold(vitaePenalty, DeathLevel.Value);
@@ -441,7 +453,8 @@ namespace ACE.Server.WorldObjects
 
             var shareType = shareable ? ShareType.All : ShareType.None;
 
-            GrantXP(scaledXP, XpType.Quest, shareType);
+            // apply xp modifiers?
+            EarnXP(scaledXP, XpType.Quest, shareType);
         }
 
         /// <summary>
@@ -479,6 +492,23 @@ namespace ACE.Server.WorldObjects
                 });
                 actionChain.EnqueueChain();
             }
+        }
+
+        /// <summary>
+        /// Returns the multiplier to XP and Luminance from Trinkets and Augmentations
+        /// </summary>
+        public float GetXPAndLuminanceModifier(XpType xpType)
+        {
+            var enchantmentBonus = EnchantmentManager.GetXPBonus();
+
+            var augBonus = 0.0f;
+            if (xpType == XpType.Kill && AugmentationBonusXp > 0)
+                augBonus = AugmentationBonusXp * 0.05f;
+
+            var modifier = 1.0f + enchantmentBonus + augBonus;
+            //Console.WriteLine($"XPAndLuminanceModifier: {modifier}");
+
+            return modifier;
         }
     }
 }

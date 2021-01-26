@@ -668,7 +668,7 @@ namespace ACE.Server.WorldObjects
             }
             else
             {
-                if (this is Container)
+                if (this is Container || (!string.IsNullOrEmpty(GeneratorEvent) && RegenerationInterval == 0))
                     Generator_Regeneration();
 
                 if (InitCreate == 0)
@@ -764,8 +764,8 @@ namespace ACE.Server.WorldObjects
         {
             if (GeneratorId == null) return;
 
-            if (!Generator.GeneratorDisabled)
-            {
+            //if (!Generator.GeneratorDisabled)
+            //{
                 var removeQueueTotal = 0;
 
                 foreach (var generator in Generator.GeneratorProfiles)
@@ -776,10 +776,14 @@ namespace ACE.Server.WorldObjects
 
                 if (Generator.GeneratorId > 0) // Generator is controlled by another generator.
                 {
-                    if (!(Generator is Container) && Generator.InitCreate > 0 && (Generator.CurrentCreate - removeQueueTotal) == 0) // Parent generator is non-container (Container, Corpse, Chest, Slumlord, Storage, Hook, Creature) generator
+                    if ((!(Generator is Container) || Generator.GeneratorAutomaticDestruction) && Generator.InitCreate > 0 && (Generator.CurrentCreate - removeQueueTotal) == 0) // Parent generator is non-container (Container, Corpse, Chest, Slumlord, Storage, Hook, Creature) generator
                         Generator.Destroy(); // Generator's complete spawn count has been wiped out
                 }
-            }
+                else if (Generator.GeneratorAutomaticDestruction && Generator.InitCreate > 0 && (Generator.CurrentCreate - removeQueueTotal) == 0)
+                {
+                    Generator.Destroy(); // Generator's complete spawn count has been wiped out
+                }
+            //}
 
             Generator = null;
             GeneratorId = null;
@@ -907,6 +911,16 @@ namespace ACE.Server.WorldObjects
                 generator.Spawned.Clear();
                 generator.SpawnQueue.Clear();
             }
+        }
+
+        public uint? GetStaticGuid(uint dynamicGuid)
+        {
+            foreach (var profile in GeneratorProfiles)
+            {
+                if (profile.Spawned.ContainsKey(dynamicGuid))
+                    return profile.Id;
+            }
+            return null;
         }
     }
 }

@@ -311,10 +311,12 @@ namespace ACE.Server.WorldObjects
                     if (weapon != null && weapon.IsCleaving)
                     {
                         var cleave = GetCleaveTarget(creature, weapon);
-                        foreach (var cleaveHit in cleave)
-                            DamageTarget(cleaveHit, weapon);
 
-                        // target procs don't happen for cleaving
+                        foreach (var cleaveHit in cleave)
+                        {
+                            // target procs don't happen for cleaving
+                            DamageTarget(cleaveHit, weapon);
+                        }
                     }
                 });
 

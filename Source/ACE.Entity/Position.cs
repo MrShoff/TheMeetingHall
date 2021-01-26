@@ -73,7 +73,7 @@ namespace ACE.Entity
         public float RotationY { get; set; }
         public float RotationZ { get; set; }
 
-        public bool Indoors => landblockId.MapScope != MapScope.Outdoors;
+        public bool Indoors => landblockId.Indoors;
 
         /// <summary>
         /// Returns the normalized 2D heading direction
@@ -467,7 +467,7 @@ namespace ACE.Entity
 
         public string ToLOCString()
         {
-            return $"0x{LandblockId.Raw:X8} [{PositionX} {PositionY} {PositionZ}] {RotationW} {RotationX} {RotationY} {RotationZ}";
+            return $"0x{LandblockId.Raw:X8} [{PositionX:F6} {PositionY:F6} {PositionZ:F6}] {RotationW:F6} {RotationX:F6} {RotationY:F6} {RotationZ:F6}";
         }
 
         public static readonly int BlockLength = 192;

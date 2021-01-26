@@ -129,6 +129,13 @@ namespace ACE.Server.Entity
         {
             22545,  // Obsidian Spines
             35191,  // Thunder Chicken
+            38406,  // Blessed Moar
+            38587,  // Ardent Moar
+            38588,  // Blessed Moar
+            38586,  // Verdant Moar
+            40298,  // Ardent Moar
+            40300,  // Blessed Moar
+            40301,  // Verdant Moar
         };
 
         public static DamageEvent CalculateDamage(Creature attacker, Creature defender, WorldObject damageSource, MotionCommand? attackMotion = null)
@@ -153,11 +160,11 @@ namespace ACE.Server.Entity
             Attacker = attacker;
             Defender = defender;
 
-            CombatType = damageSource.ProjectileSource == null ? attacker.GetCombatType() : CombatType.Missile;
+            CombatType = damageSource.ProjectileSource == null ? CombatType.Melee : CombatType.Missile;
 
             DamageSource = damageSource;
 
-            Weapon = damageSource.ProjectileSource == null ? attacker.GetEquippedWeapon() : damageSource.ProjectileLauncher;
+            Weapon = damageSource.ProjectileSource == null ? attacker.GetEquippedMeleeWeapon() : damageSource.ProjectileLauncher;
 
             AttackType = attacker.AttackType;
             AttackHeight = attacker.AttackHeight ?? AttackHeight.Medium;
@@ -221,6 +228,14 @@ namespace ACE.Server.Entity
             // critical hit?
             var attackSkill = attacker.GetCreatureSkill(attacker.GetCurrentWeaponSkill());
             CriticalChance = WorldObject.GetWeaponCriticalChance(attacker, attackSkill, defender);
+
+            // https://asheron.fandom.com/wiki/Announcements_-_2002/08_-_Atonement
+            // It should be noted that any time a character is logging off, PK or not, all physical attacks against them become automatically critical.
+            // (Note that spells do not share this behavior.) We hope this will stress the need to log off in a safe place.
+
+            if (playerDefender != null && (playerDefender.IsLoggingOut || playerDefender.PKLogout))
+                CriticalChance = 1.0f;
+
             if (CriticalChance > ThreadSafeRandom.Next(0.0f, 1.0f))
             {
                 if (playerDefender != null && playerDefender.AugmentationCriticalDefense > 0)
@@ -299,7 +314,7 @@ namespace ACE.Server.Entity
             }
 
             // damage resistance rating
-            DamageResistanceRatingMod = Creature.GetNegativeRatingMod(defender.GetDamageResistRating(CombatType));
+            DamageResistanceRatingMod = defender.GetDamageResistRatingMod(CombatType);
 
             // get shield modifier
             ShieldMod = defender.GetShieldMod(attacker, DamageType, Weapon);
@@ -331,9 +346,9 @@ namespace ACE.Server.Entity
 
             EffectiveAttackSkill = attacker.GetEffectiveAttackSkill();
 
-            var attackType = attacker.GetCombatType();
+            //var attackType = attacker.GetCombatType();
 
-            EffectiveDefenseSkill = defender.GetEffectiveDefenseSkill(attackType);
+            EffectiveDefenseSkill = defender.GetEffectiveDefenseSkill(CombatType);
 
             var evadeChance = 1.0f - SkillCheck.GetSkillChance(EffectiveAttackSkill, EffectiveDefenseSkill);
             return (float)evadeChance;
@@ -358,7 +373,7 @@ namespace ACE.Server.Entity
                 }
             }
             else
-                DamageType = attacker.GetDamageType();
+                DamageType = attacker.GetDamageType(false, CombatType.Melee);
 
             // TODO: combat maneuvers for player?
             BaseDamageMod = attacker.GetBaseDamageMod(DamageSource);
@@ -370,7 +385,7 @@ namespace ACE.Server.Entity
             if (DamageSource.ItemType == ItemType.MissileWeapon)
                 BaseDamageMod.ElementalBonus = WorldObject.GetMissileElementalDamageBonus(attacker, DamageType);
 
-            BaseDamage = ThreadSafeRandom.Next(BaseDamageMod.MinDamage, BaseDamageMod.MaxDamage);
+            BaseDamage = (float)ThreadSafeRandom.Next(BaseDamageMod.MinDamage, BaseDamageMod.MaxDamage);
         }
 
         /// <summary>
@@ -386,7 +401,7 @@ namespace ACE.Server.Entity
             }
 
             BaseDamageMod = attacker.GetBaseDamage(AttackPart.Value);
-            BaseDamage = ThreadSafeRandom.Next(BaseDamageMod.MinDamage, BaseDamageMod.MaxDamage);
+            BaseDamage = (float)ThreadSafeRandom.Next(BaseDamageMod.MinDamage, BaseDamageMod.MaxDamage);
 
             DamageType = attacker.GetDamageType(AttackPart.Value, CombatType);
         }

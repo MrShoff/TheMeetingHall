@@ -37,6 +37,8 @@ namespace ACE.Server.WorldObjects
                 var worldObject = WorldObjectFactory.CreateWorldObject(biota);
                 EquippedObjects[worldObject.Guid] = worldObject;
 
+                AddItemToEquippedItemsRatingCache(worldObject);
+
                 EncumbranceVal += (worldObject.EncumbranceVal ?? 0);
             }
 
@@ -48,7 +50,11 @@ namespace ACE.Server.WorldObjects
         public bool WieldedLocationIsAvailable(WorldObject item, EquipMask wieldedLocation)
         {
             // filtering to just armor here, or else trinkets and dual wielding breaks
-            var existing = this is Player ? GetEquippedClothingArmor(item.ClothingPriority ?? 0) : GetEquippedItems(item, wieldedLocation);
+            // update: cannot repro the break anymore?
+            //var existing = this is Player ? GetEquippedClothingArmor(item.ClothingPriority ?? 0) : GetEquippedItems(item, wieldedLocation);
+            var existing = GetEquippedItems(item, wieldedLocation);
+
+            // TODO: handle overlap from MeleeWeapon / MissileWeapon / Held
 
             return existing.Count == 0;
         }
@@ -89,8 +95,9 @@ namespace ACE.Server.WorldObjects
         {
             if (IsWeaponSlot(wieldedLocation))
             {
+                // TODO: change to coalesced CurrentWieldedLocation
                 GetPlacementLocation(item, wieldedLocation, out var placement, out var parentLocation);
-                return EquippedObjects.Values.Where(i => i.ParentLocation != null && i.ParentLocation == parentLocation).ToList();
+                return EquippedObjects.Values.Where(i => i.ParentLocation != null && i.ParentLocation == parentLocation && i.CurrentWieldedLocation != EquipMask.MissileAmmo).ToList();
             }
 
             if (item is Clothing)
@@ -192,6 +199,62 @@ namespace ACE.Server.WorldObjects
         }
 
         /// <summary>
+        /// This is initialized the first time an item is equipped that has a rating. If it is null, there are no equipped items with ratings.
+        /// </summary>
+        private Dictionary<PropertyInt, int> equippedItemsRatingCache;
+
+        private void AddItemToEquippedItemsRatingCache(WorldObject wo)
+        {
+            if ((wo.GearDamage ?? 0) == 0 && (wo.GearDamageResist ?? 0) == 0 && (wo.GearCritDamage ?? 0) == 0 && (wo.GearCritDamageResist ?? 0) == 0 && (wo.GearHealingBoost ?? 0) == 0 && (wo.GearMaxHealth ?? 0) == 0)
+                return;
+
+            if (equippedItemsRatingCache == null)
+            {
+                equippedItemsRatingCache = new Dictionary<PropertyInt, int>
+                {
+                    { PropertyInt.GearDamage, 0 },
+                    { PropertyInt.GearDamageResist, 0 },
+                    { PropertyInt.GearCritDamage, 0 },
+                    { PropertyInt.GearCritDamageResist, 0 },
+                    { PropertyInt.GearHealingBoost, 0 },
+                    { PropertyInt.GearMaxHealth, 0 },
+                };
+            }
+
+            equippedItemsRatingCache[PropertyInt.GearDamage] += (wo.GearDamage ?? 0);
+            equippedItemsRatingCache[PropertyInt.GearDamageResist] += (wo.GearDamageResist ?? 0);
+            equippedItemsRatingCache[PropertyInt.GearCritDamage] += (wo.GearCritDamage ?? 0);
+            equippedItemsRatingCache[PropertyInt.GearCritDamageResist] += (wo.GearCritDamageResist ?? 0);
+            equippedItemsRatingCache[PropertyInt.GearHealingBoost] += (wo.GearHealingBoost ?? 0);
+            equippedItemsRatingCache[PropertyInt.GearMaxHealth] += (wo.GearMaxHealth ?? 0);
+        }
+
+        private void RemoveItemFromEquippedItemsRatingCache(WorldObject wo)
+        {
+            if (equippedItemsRatingCache == null)
+                return;
+
+            equippedItemsRatingCache[PropertyInt.GearDamage] -= (wo.GearDamage ?? 0);
+            equippedItemsRatingCache[PropertyInt.GearDamageResist] -= (wo.GearDamageResist ?? 0);
+            equippedItemsRatingCache[PropertyInt.GearCritDamage] -= (wo.GearCritDamage ?? 0);
+            equippedItemsRatingCache[PropertyInt.GearCritDamageResist] -= (wo.GearCritDamageResist ?? 0);
+            equippedItemsRatingCache[PropertyInt.GearHealingBoost] -= (wo.GearHealingBoost ?? 0);
+            equippedItemsRatingCache[PropertyInt.GearMaxHealth] -= (wo.GearMaxHealth ?? 0);
+        }
+
+        public int GetEquippedItemsRatingSum(PropertyInt rating)
+        {
+            if (equippedItemsRatingCache == null)
+                return 0;
+
+            if (equippedItemsRatingCache.TryGetValue(rating, out var value))
+                return value;
+
+            log.Error($"Creature_Equipment.GetEquippedItemsRatingsSum() does not support {rating}");
+            return 0;
+        }
+
+        /// <summary>
         /// Try to wield an object for non-player creatures
         /// </summary>
         /// <returns></returns>
@@ -216,6 +279,9 @@ namespace ACE.Server.WorldObjects
         /// </summary>
         private void TryActivateItemSpells(WorldObject item)
         {
+            if (!Attackable)
+                return;
+
             // check activation requirements?
             foreach (var spell in item.Biota.GetKnownSpellsIds(BiotaDatabaseLock))
                 CreateItemSpell(item, (uint)spell);
@@ -236,6 +302,8 @@ namespace ACE.Server.WorldObjects
             worldObject.Wielder = this;
 
             EquippedObjects[worldObject.Guid] = worldObject;
+
+            AddItemToEquippedItemsRatingCache(worldObject);
 
             EncumbranceVal += (worldObject.EncumbranceVal ?? 0);
             Value += (worldObject.Value ?? 0);
@@ -293,6 +361,8 @@ namespace ACE.Server.WorldObjects
                 wieldedLocation = 0;
                 return false;
             }
+
+            RemoveItemFromEquippedItemsRatingCache(worldObject);
 
             wieldedLocation = worldObject.GetProperty(PropertyInt.CurrentWieldedLocation) ?? 0;
 
@@ -532,10 +602,10 @@ namespace ACE.Server.WorldObjects
 
                 if (wo == null) continue;
 
-                if (wo.ValidLocations == null || (ItemCapacity ?? 0) > 0)
+                //if (wo.ValidLocations == null || (ItemCapacity ?? 0) > 0)
                     TryAddToInventory(wo);
-                else
-                    TryWieldObject(wo, (EquipMask)wo.ValidLocations);
+                //else
+                    //TryWieldObject(wo, (EquipMask)wo.ValidLocations);
             }
         }
 
@@ -572,7 +642,7 @@ namespace ACE.Server.WorldObjects
 
                     totalProbability += probability;
 
-                    if (rngSelected || rng > totalProbability)
+                    if (rngSelected || rng >= totalProbability)
                         continue;
 
                     rngSelected = true;
@@ -620,7 +690,7 @@ namespace ACE.Server.WorldObjects
 
                     totalProbability += probability;
 
-                    if (rngSelected || rng > totalProbability)
+                    if (rngSelected || rng >= totalProbability)
                         continue;
 
                     rngSelected = true;
@@ -659,10 +729,10 @@ namespace ACE.Server.WorldObjects
 
             foreach (var item in wieldedTreasure)
             {
-                if (item.ValidLocations == null || (ItemCapacity ?? 0) > 0)
+                //if (item.ValidLocations == null || (ItemCapacity ?? 0) > 0)
                     TryAddToInventory(item);
-                else
-                    TryWieldObject(item, (EquipMask)item.ValidLocations);
+                //else
+                    //TryWieldObject(item, (EquipMask)item.ValidLocations);
             }
         }
     }

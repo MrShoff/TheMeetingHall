@@ -30,42 +30,6 @@ namespace ACE.Server.WorldObjects
             set { if (value.HasValue) SetProperty(PropertyInt.PetClass, value.Value); else RemoveProperty(PropertyInt.PetClass); }
         }
 
-        public int? GearDamage
-        {
-            get => GetProperty(PropertyInt.GearDamage);
-            set { if (value.HasValue) SetProperty(PropertyInt.GearDamage, value.Value); else RemoveProperty(PropertyInt.GearDamage); }
-        }
-
-        public int? GearDamageResist
-        {
-            get => GetProperty(PropertyInt.GearDamageResist);
-            set { if (value.HasValue) SetProperty(PropertyInt.GearDamageResist, value.Value); else RemoveProperty(PropertyInt.GearDamageResist); }
-        }
-
-        public int? GearCritDamage
-        {
-            get => GetProperty(PropertyInt.GearCritDamage);
-            set { if (value.HasValue) SetProperty(PropertyInt.GearCritDamage, value.Value); else RemoveProperty(PropertyInt.GearCritDamage); }
-        }
-
-        public int? GearCritDamageResist
-        {
-            get => GetProperty(PropertyInt.GearCritDamageResist);
-            set { if (value.HasValue) SetProperty(PropertyInt.GearCritDamageResist, value.Value); else RemoveProperty(PropertyInt.GearCritDamageResist); }
-        }
-
-        public int? GearCrit
-        {
-            get => GetProperty(PropertyInt.GearCrit);
-            set { if (value.HasValue) SetProperty(PropertyInt.GearCrit, value.Value); else RemoveProperty(PropertyInt.GearCrit); }
-        }
-
-        public int? GearCritResist
-        {
-            get => GetProperty(PropertyInt.GearCritResist);
-            set { if (value.HasValue) SetProperty(PropertyInt.GearCritResist, value.Value); else RemoveProperty(PropertyInt.GearCritResist); }
-        }
-
         /// <summary>
         /// A new biota be created taking all of its values from weenie.
         /// </summary>
@@ -105,7 +69,8 @@ namespace ACE.Server.WorldObjects
 
             if (Structure == 0)
             {
-                player.Session.Network.EnqueueSend(new GameEventCommunicationTransientString(player.Session, "You must refill the essence to use it again."));
+                //player.Session.Network.EnqueueSend(new GameEventCommunicationTransientString(player.Session, "You must refill the essence to use it again."));
+                player.Session.Network.EnqueueSend(new GameMessageSystemChat("Your summoning device does not have enough charges to function!", ChatMessageType.Broadcast));
                 return;
             }
 
@@ -143,6 +108,19 @@ namespace ACE.Server.WorldObjects
                 player.Session.Network.EnqueueSend(new GameMessageSystemChat($"You must be a {SummoningMastery} to use the {Name}", ChatMessageType.Broadcast));
                 return new ActivationResult(false);
             }
+
+            // duplicating some of this verification logic here from Pet.Init()
+            // since the PetDevice owner and the summoned Pet are separate objects w/ potentially different heartbeat offsets,
+            // the cooldown can still expire before the CombatPet's lifespan
+            // in this case, if the player tries to re-activate the PetDevice while the CombatPet is still in the world,
+            // we want to return an error without re-activating the cooldown
+
+            if (player.CurrentActivePet != null && player.CurrentActivePet is CombatPet)
+            {
+                player.SendTransientError($"{player.CurrentActivePet.Name} is already active");
+                return new ActivationResult(false);
+            }
+
             return new ActivationResult(true);
         }
 
@@ -562,6 +540,15 @@ namespace ACE.Server.WorldObjects
                 if (useError != WeenieError.None)
                 {
                     player.SendUseDoneEvent(useError);
+                    player.IsBusy = false;
+                    return;
+                }
+
+                if (Structure == MaxStructure)
+                {
+                    player.Session.Network.EnqueueSend(new GameMessageSystemChat("This essence is already full.", ChatMessageType.Broadcast));
+                    player.SendUseDoneEvent(WeenieError.YouDoNotPassCraftingRequirements);
+                    player.IsBusy = false;
                     return;
                 }
 

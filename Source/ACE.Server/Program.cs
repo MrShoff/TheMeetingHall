@@ -40,6 +40,10 @@ namespace ACE.Server
 
         public static void Main(string[] args)
         {
+            var consoleTitle = $"ACEmulator - v{ServerBuildInfo.FullVersion}";
+
+            Console.Title = consoleTitle;
+
             AppDomain.CurrentDomain.UnhandledException += CurrentDomain_UnhandledException;
             AppDomain.CurrentDomain.ProcessExit += new EventHandler(OnProcessExit);
 
@@ -121,9 +125,7 @@ namespace ACE.Server
 
             if (IsRunningInContainer)
                 log.Info("ACEmulator is running in a container...");
-
-            Console.Title = @$"ACEmulator - v{ServerBuildInfo.FullVersion}";
-
+            
             var configFile = Path.Combine(exeLocation, "Config.js");
             var configConfigContainer = Path.Combine(containerConfigDirectory, "Config.js");
 
@@ -148,6 +150,12 @@ namespace ACE.Server
 
             log.Info("Initializing ConfigManager...");
             ConfigManager.Initialize();
+
+            if (ConfigManager.Config.Server.WorldName != "ACEmulator")
+            {
+                consoleTitle = $"{ConfigManager.Config.Server.WorldName} | {consoleTitle}";
+                Console.Title = consoleTitle;
+            }
 
             if (ConfigManager.Config.Offline.PurgeDeletedCharacters)
             {
@@ -178,6 +186,11 @@ namespace ACE.Server
             else
                 log.Info($"AutoApplyDatabaseUpdates is disabled...");
 
+            // This should only be enabled manually. To enable it, simply uncomment this line
+            //ACE.Database.OfflineTools.Shard.BiotaGuidConsolidator.ConsolidateBiotaGuids(0xC0000000, out int numberOfBiotasConsolidated, out int numberOfErrors);
+
+            ShardDatabaseOfflineTools.CheckForBiotaPropertiesPaletteOrderColumnInShard();
+
             log.Info("Initializing ServerManager...");
             ServerManager.Initialize();
 
@@ -186,6 +199,13 @@ namespace ACE.Server
 
             log.Info("Initializing DatabaseManager...");
             DatabaseManager.Initialize();
+
+            if (DatabaseManager.InitializationFailure)
+            {
+                log.Fatal("DatabaseManager initialization failed. ACEmulator will now abort startup.");
+                ServerManager.StartupAbort();
+                Environment.Exit(0);
+            }
 
             log.Info("Starting DatabaseManager...");
             DatabaseManager.Start();
@@ -219,13 +239,13 @@ namespace ACE.Server
                 log.Info("Precaching Treasures - Death...");
                 DatabaseManager.World.CacheAllTreasuresDeath();
                 log.Info("Precaching Treasures - Material Base...");
-                DatabaseManager.World.CacheAllTreasuresMaterialBaseInParallel();
+                DatabaseManager.World.CacheAllTreasureMaterialBase();
                 log.Info("Precaching Treasures - Material Groups...");
-                DatabaseManager.World.CacheAllTreasuresMaterialGroupsInParallel();
+                DatabaseManager.World.CacheAllTreasureMaterialGroups();
                 log.Info("Precaching Treasures - Material Colors...");
-                DatabaseManager.World.CacheAllTreasuresMaterialColorInParallel();
+                DatabaseManager.World.CacheAllTreasureMaterialColor();
                 log.Info("Precaching Treasures - Wielded...");
-                DatabaseManager.World.CacheAllTreasuresWieldedInParallel();
+                DatabaseManager.World.CacheAllTreasureWielded();
             }
             else
                 log.Info("Precaching World Database Disabled...");

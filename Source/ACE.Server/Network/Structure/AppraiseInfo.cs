@@ -99,10 +99,10 @@ namespace ACE.Server.Network.Structure
                 if (!PropertiesBool.ContainsKey(PropertyBool.AppraisalHasAllowedActivator))
                     PropertiesBool.Add(PropertyBool.AppraisalHasAllowedActivator, true);
 
-            if (PropertiesString.ContainsKey(PropertyString.ScribeAccount) && !examiner.IsAdmin && !examiner.IsSentinel && !examiner.IsArch && !examiner.IsPsr)
+            if (PropertiesString.ContainsKey(PropertyString.ScribeAccount) && !examiner.IsAdmin && !examiner.IsSentinel && !examiner.IsEnvoy && !examiner.IsArch && !examiner.IsPsr)
                 PropertiesString.Remove(PropertyString.ScribeAccount);
 
-            if (PropertiesString.ContainsKey(PropertyString.HouseOwnerAccount) && !examiner.IsAdmin && !examiner.IsSentinel && !examiner.IsArch && !examiner.IsPsr)
+            if (PropertiesString.ContainsKey(PropertyString.HouseOwnerAccount) && !examiner.IsAdmin && !examiner.IsSentinel && !examiner.IsEnvoy && !examiner.IsArch && !examiner.IsPsr)
                 PropertiesString.Remove(PropertyString.HouseOwnerAccount);
 
             if (PropertiesInt.ContainsKey(PropertyInt.Lifespan))
@@ -115,7 +115,7 @@ namespace ACE.Server.Network.Structure
             if (wo is Creature creature)
                 BuildCreature(creature);
 
-            if (wo is MeleeWeapon || wo is Missile || wo is MissileLauncher || wo is Ammunition || wo is Caster)
+            if (wo.Damage != null || wo is MeleeWeapon || wo is Missile || wo is MissileLauncher || wo is Ammunition || wo is Caster)
                 BuildWeapon(wo, wielder);
 
             if (wo is Door || wo is Chest)
@@ -298,6 +298,19 @@ namespace ACE.Server.Network.Structure
                     PropertiesInt.Remove(PropertyInt.Structure);
             }
 
+            if (!Success)
+            {
+                // todo: what specifically to keep/what to clear
+
+                //PropertiesBool.Clear();
+                //PropertiesDID.Clear();
+                //PropertiesFloat.Clear();
+                //PropertiesIID.Clear();
+                //PropertiesInt.Clear();
+                //PropertiesInt64.Clear();
+                //PropertiesString.Clear();
+            }
+
             BuildFlags();
         }
 
@@ -363,6 +376,8 @@ namespace ACE.Server.Network.Structure
 
             if (wo.ItemSkillLimit != null)
                 PropertiesInt[PropertyInt.AppraisalItemSkill] = (int)wo.ItemSkillLimit;
+            else
+                PropertiesInt.Remove(PropertyInt.AppraisalItemSkill);
 
             if (PropertiesFloat.ContainsKey(PropertyFloat.WeaponDefense) && !(wo is Missile) && !(wo is Ammunition))
             {
@@ -405,6 +420,20 @@ namespace ACE.Server.Network.Structure
                     ResistColor = ResistMaskHelper.GetColorMask(wielder, wo);
                 }
             }
+
+            var appraisalLongDescDecoration = AppraisalLongDescDecorations.None;
+
+            if (wo.ItemWorkmanship > 0)
+                appraisalLongDescDecoration |= AppraisalLongDescDecorations.PrependWorkmanship;
+            if (wo.MaterialType > 0)
+                appraisalLongDescDecoration |= AppraisalLongDescDecorations.PrependMaterial;
+            if (wo.GemType > 0 && wo.GemCount > 0)
+                appraisalLongDescDecoration |= AppraisalLongDescDecorations.AppendGemInfo;
+
+            if (appraisalLongDescDecoration > 0 && wo.LongDesc != null && wo.LongDesc.StartsWith(wo.Name))
+                PropertiesInt[PropertyInt.AppraisalLongDescDecoration] = (int)appraisalLongDescDecoration;
+            else
+                PropertiesInt.Remove(PropertyInt.AppraisalLongDescDecoration);
         }
 
         private void BuildSpells(WorldObject wo)
@@ -532,6 +561,9 @@ namespace ACE.Server.Network.Structure
 
         private void BuildArmor(WorldObject wo)
         {
+            if (!Success)
+                return;
+
             ArmorProfile = new ArmorProfile(wo);
             ArmorHighlight = ArmorMaskHelper.GetHighlightMask(wo);
             ArmorColor = ArmorMaskHelper.GetColorMask(wo);
@@ -547,16 +579,24 @@ namespace ACE.Server.Network.Structure
             ResistHighlight = ResistMaskHelper.GetHighlightMask(creature);
             ResistColor = ResistMaskHelper.GetColorMask(creature);
 
-            ArmorLevels = new ArmorLevel(creature);
+            if (Success && (creature is Player || !creature.Attackable))
+                ArmorLevels = new ArmorLevel(creature);
 
             AddRatings(creature);
 
             if (PropertiesInt.ContainsKey(PropertyInt.EncumbranceVal))
                 PropertiesInt.Remove(PropertyInt.EncumbranceVal);
+
+            // see notes in CombatPet.Init()
+            if (creature is CombatPet && PropertiesInt.ContainsKey(PropertyInt.Faction1Bits))
+                PropertiesInt.Remove(PropertyInt.Faction1Bits);
         }
 
         private void AddRatings(Creature creature)
         {
+            if (!Success)
+                return;
+
             var damageRating = creature.GetDamageRating();
 
             // include heritage / weapon type rating?
@@ -615,6 +655,9 @@ namespace ACE.Server.Network.Structure
 
         private void BuildWeapon(WorldObject weapon, WorldObject wielder)
         {
+            if (!Success)
+                return;
+
             var weaponProfile = new WeaponProfile(weapon, wielder);
 
             //WeaponHighlight = WeaponMaskHelper.GetHighlightMask(weapon, wielder);
