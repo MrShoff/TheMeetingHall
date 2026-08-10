@@ -130,7 +130,7 @@ namespace ACE.Server.WorldObjects
 
             foreach (var spell in dispellSpells)
             {
-                Player.TryCastSpell(spell, Player, null, false);
+                Player.TryCastSpell(spell, Player, null, tryResist: false);
             }
         }
 

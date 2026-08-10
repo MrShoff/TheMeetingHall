@@ -28,7 +28,7 @@ namespace ACE.Server.Network.GameEvent.Events
         /// </summary>
         /// <param name="session"></param>
         public GameEventFriendsListUpdate(Session session)
-            : base(GameEventType.FriendsListUpdate, GameMessageGroup.UIQueue, session)
+            : base(GameEventType.FriendsListUpdate, GameMessageGroup.UIQueue, session, 4096) // 2,062 is the average seen in retail pcaps, 36,916 is the max seen in retail pcaps
         {
             updateType = FriendsUpdateTypeFlag.FullList;
             WriteEventBody();
@@ -58,7 +58,7 @@ namespace ACE.Server.Network.GameEvent.Events
             List<CharacterPropertiesFriendList> friendList;
 
             if (updateType == FriendsUpdateTypeFlag.FullList)
-                friendList = Session.Player.Character.CharacterPropertiesFriendList.ToList();
+                friendList = Session.Player.Character.GetFriends(Session.Player.CharacterDatabaseLock);
             else
                 friendList = new List<CharacterPropertiesFriendList>() { friend };
 

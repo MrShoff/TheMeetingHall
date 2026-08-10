@@ -60,7 +60,7 @@ namespace ACE.Server.WorldObjects
             {
                 if (spellKnownOutput)
                 {
-                    GameMessageSystemChat errorMessage = new GameMessageSystemChat("That spell is already known", ChatMessageType.Broadcast);
+                    GameMessageSystemChat errorMessage = new GameMessageSystemChat("You already know that spell!", ChatMessageType.Broadcast);
                     Session.Network.EnqueueSend(errorMessage);
                 }
                 return;
@@ -69,8 +69,8 @@ namespace ACE.Server.WorldObjects
             GameEventMagicUpdateSpell updateSpellEvent = new GameEventMagicUpdateSpell(Session, (ushort)spellId);
             Session.Network.EnqueueSend(updateSpellEvent);
 
-            //Check to see if we echo output to the client
-            if (uiOutput == true)
+            // Check to see if we echo output to the client text area and do playscript animation
+            if (uiOutput)
             {
                 // Always seems to be this SkillUpPurple effect
                 ApplyVisualEffects(PlayScript.SkillUpPurple);
@@ -78,6 +78,10 @@ namespace ACE.Server.WorldObjects
                 string message = $"You learn the {spells.Spells[spellId].Name} spell.\n";
                 GameMessageSystemChat learnMessage = new GameMessageSystemChat(message, ChatMessageType.Broadcast);
                 Session.Network.EnqueueSend(learnMessage);
+            }
+            else
+            {
+                Session.Network.EnqueueSend(new GameEventCommunicationTransientString(Session, "You have learned a new spell."));
             }
         }
 
@@ -135,7 +139,7 @@ namespace ACE.Server.WorldObjects
             EquipDequipItemFromSet(item, spells, prevSpells);
         }
 
-        public void EquipDequipItemFromSet(WorldObject item, List<Spell> spells, List<Spell> prevSpells)
+        public void EquipDequipItemFromSet(WorldObject item, List<Spell> spells, List<Spell> prevSpells, WorldObject surrogateItem = null)
         {
             // compare these 2 spell sets -
             // see which spells are being added, and which are being removed
@@ -148,8 +152,10 @@ namespace ACE.Server.WorldObjects
             foreach (var spell in removeSpells)
                 EnchantmentManager.Dispel(EnchantmentManager.GetEnchantment(spell.Id, item.EquipmentSetId.Value));
 
+            var addItem = surrogateItem ?? item;
+
             foreach (var spell in addSpells)
-                CreateItemSpell(item, spell.Id);
+                CreateItemSpell(addItem, spell.Id);
         }
 
         public void DequipItemFromSet(WorldObject item)
@@ -158,13 +164,25 @@ namespace ACE.Server.WorldObjects
 
             var setItems = EquippedObjects.Values.Where(i => i.HasItemSet && i.EquipmentSetId == item.EquipmentSetId).ToList();
 
+            // for better bookkeeping, and to avoid a rarish error with AuditItemSpells detecting -1 duration item enchantments where
+            // the CasterGuid is no longer in the player's possession
+            var surrogateItem = setItems.LastOrDefault();
+
             var spells = GetSpellSet(setItems);
 
             // get the spells from before / with this item
             setItems.Add(item);
             var prevSpells = GetSpellSet(setItems);
 
-            EquipDequipItemFromSet(item, spells, prevSpells);
+            if (surrogateItem == null)
+            {
+                var addSpells = spells.Except(prevSpells);
+
+                if (addSpells.Count() != 0)
+                    log.Error($"{Name}.DequipItemFromSet({item.Name}) -- last item in set dequipped, but addSpells still contains {string.Join(", ", addSpells.Select(i => i.Name))} -- this shouldn't happen!");
+            }
+
+            EquipDequipItemFromSet(item, spells, prevSpells, surrogateItem);
         }
 
         public void OnItemLevelUp(WorldObject item, int prevItemLevel)
@@ -247,19 +265,17 @@ namespace ACE.Server.WorldObjects
                     var critterBuffsForPlayer = buffsForPlayer.Where(k => k.Spell.School == MagicSchool.CreatureEnchantment).ToList();
                     var itemBuffsForPlayer = buffsForPlayer.Where(k => k.Spell.School == MagicSchool.ItemEnchantment).ToList();
 
-                    uint dmg = 0;
-                    EnchantmentStatus ec;
                     lifeBuffsForPlayer.ForEach(spl =>
                     {
-                        bool casted = targetPlayer.LifeMagic(spl.Spell, out dmg, out ec, targetPlayer, this);
+                        CreateEnchantmentSilent(spl.Spell, targetPlayer);
                     });
                     critterBuffsForPlayer.ForEach(spl =>
                     {
-                        ec = targetPlayer.CreatureMagic(targetPlayer, spl.Spell, this);
+                        CreateEnchantmentSilent(spl.Spell, targetPlayer);
                     });
                     itemBuffsForPlayer.ForEach(spl =>
                     {
-                        ec = targetPlayer.ItemMagic(targetPlayer, spl.Spell, this);
+                        CreateEnchantmentSilent(spl.Spell, targetPlayer);
                     });
                 }
                 if (buffMessages.Any(k => k.Bane))
@@ -272,15 +288,23 @@ namespace ACE.Server.WorldObjects
                         foreach (var item in items)
                         {
                             if ((item.WeenieType == WeenieType.Clothing || item.IsShield) && item.IsEnchantable)
-                            {
-                                itemBuff.SetLandblockMessage(item.Guid);
-                                var enchantmentStatus = targetPlayer.ItemMagic(item, itemBuff.Spell, this);
-                                targetPlayer?.EnqueueBroadcast(itemBuff.LandblockMessage);
-                            }
+                                CreateEnchantmentSilent(itemBuff.Spell, item);
                         }
                     }
                 }
             });
+        }
+
+        private void CreateEnchantmentSilent(Spell spell, WorldObject target)
+        {
+            var addResult = target.EnchantmentManager.Add(spell, this, null);
+
+            if (target is Player targetPlayer)
+            {
+                targetPlayer.Session.Network.EnqueueSend(new GameEventMagicUpdateEnchantment(targetPlayer.Session, new Enchantment(targetPlayer, addResult.Enchantment)));
+
+                targetPlayer.HandleSpellHooks(spell);
+            }
         }
 
         // TODO: switch this over to SpellProgressionTables
@@ -357,6 +381,7 @@ namespace ACE.Server.WorldObjects
             "DirtyFightingMastery",
             "RecklessnessMastery",
             "SneakAttackMastery",
+            "ShieldMastery",
             "@Impenetrability",
             "@PiercingBane",
             "@BludgeonBane",
@@ -528,7 +553,7 @@ namespace ACE.Server.WorldObjects
                 if (!table.TryGetValue(new ObjectGuid(enchantment.CasterObjectId), out var item))
                 {
                     var spell = new Spell(enchantment.SpellId, false);
-                    log.Error($"{Name}.AuditItemSpells(): removing spell {spell.Name} from non-equipped item");
+                    log.Error($"{Name}.AuditItemSpells(): removing spell {spell.Name} from {(enchantment.HasSpellSetId ? "non-possessed" : "non-equipped")} item");
 
                     EnchantmentManager.Dispel(enchantment);
                     continue;

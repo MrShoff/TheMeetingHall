@@ -31,7 +31,7 @@ namespace ACE.Server.WorldObjects
         public Container(Weenie weenie, ObjectGuid guid) : base(weenie, guid)
         {
             InitializePropertyDictionaries();
-            SetEphemeralValues();
+            SetEphemeralValues(false);
 
             InventoryLoaded = true;
         }
@@ -87,7 +87,7 @@ namespace ACE.Server.WorldObjects
             }
 
             InitializePropertyDictionaries();
-            SetEphemeralValues();
+            SetEphemeralValues(true);
 
             // A player has their possessions passed via the ctor. All other world objects must load their own inventory
             if (!(this is Player) && !ObjectGuid.IsPlayer(ContainerId ?? 0))
@@ -105,16 +105,15 @@ namespace ACE.Server.WorldObjects
                 ephemeralPropertyInts = new Dictionary<PropertyInt, int?>();
         }
 
-        private void SetEphemeralValues()
+        private void SetEphemeralValues(bool fromBiota)
         {
             ephemeralPropertyInts.TryAdd(PropertyInt.EncumbranceVal, EncumbranceVal ?? 0); // Containers are init at 0 burden or their initial value from database. As inventory/equipment is added the burden will be increased
-            if (!(this is Creature)) // Creatures do not have a value
+            if (!(this is Creature) && !(this is Corpse)) // Creatures/Corpses do not have a value
                 ephemeralPropertyInts.TryAdd(PropertyInt.Value, Value ?? 0);
 
             //CurrentMotionState = motionStateClosed; // What container defaults to open?
 
-            var creature = this as Creature;
-            if (creature == null)
+            if (!fromBiota && !(this is Creature))
                 GenerateContainList();
 
             if (!ContainerCapacity.HasValue)
@@ -164,6 +163,8 @@ namespace ACE.Server.WorldObjects
                 if ((worldObjects[i].ContainerId ?? 0) == Biota.Id)
                 {
                     Inventory[worldObjects[i].Guid] = worldObjects[i];
+                    worldObjects[i].Container = this;
+
                     if (worldObjects[i].WeenieType != WeenieType.Container) // We skip over containers because we'll add their burden/value in the next loop.
                     {
                         EncumbranceVal += (worldObjects[i].EncumbranceVal ?? 0);
@@ -391,6 +392,8 @@ namespace ACE.Server.WorldObjects
         /// </summary>
         public bool TryAddToInventory(WorldObject worldObject, int placementPosition = 0, bool limitToMainPackOnly = false, bool burdenCheck = true)
         {
+            if (worldObject == null) return false;
+
             return TryAddToInventory(worldObject, out _, placementPosition, limitToMainPackOnly, burdenCheck);
         }
 
@@ -643,8 +646,36 @@ namespace ACE.Server.WorldObjects
             var itemGuids = Inventory.Keys.ToList();
             foreach (var itemGuid in itemGuids)
             {
-                if (!TryRemoveFromInventory(itemGuid, forceSave))
+                if (!TryRemoveFromInventory(itemGuid, out var item, forceSave))
                     success = false;
+
+                if (success)
+                    item.Destroy();
+            }
+            if (forceSave)
+                SaveBiotaToDatabase();
+
+            return success;
+        }
+
+        /// <summary>
+        /// Removes all items from an inventory that are unmanaged/controlled
+        /// </summary>
+        /// <returns>TRUE if all unmanaged items were removed successfully</returns>
+        public bool ClearUnmanagedInventory(bool forceSave = false)
+        {
+            if (this is Storage || WeenieClassId == (uint)ACE.Entity.Enum.WeenieClassName.W_STORAGE_CLASS)
+                return false; // Do not clear storage, ever.
+
+            var success = true;
+            var itemGuids = Inventory.Where(i => i.Value.GeneratorId == null).Select(i => i.Key).ToList();
+            foreach (var itemGuid in itemGuids)
+            {
+                if (!TryRemoveFromInventory(itemGuid, out var item, forceSave))
+                    success = false;
+
+                if (success)
+                    item.Destroy();
             }
             if (forceSave)
                 SaveBiotaToDatabase();
@@ -767,7 +798,11 @@ namespace ACE.Server.WorldObjects
 
         public virtual void Open(Player player)
         {
-            if (IsOpen) return;
+            if (IsOpen)
+            {
+                player.SendTransientError(InUseMessage);
+                return;
+            }
 
             player.LastOpenedContainerId = Guid;
 
@@ -825,7 +860,7 @@ namespace ACE.Server.WorldObjects
             foreach (var container in Inventory.Values.Where(i => i is Container))
                 player.Session.Network.EnqueueSend(new GameEventViewContents(player.Session, (Container)container));
 
-            player.Session.Network.EnqueueSend(itemsToSend.ToArray());
+            player.Session.Network.EnqueueSend(itemsToSend);
         }
 
         private void SendDeletesForMyInventory(Player player)
@@ -845,7 +880,7 @@ namespace ACE.Server.WorldObjects
                 }
             }
 
-            player.Session.Network.EnqueueSend(itemsToSend.ToArray());
+            player.Session.Network.EnqueueSend(itemsToSend);
         }
 
         public virtual void Close(Player player)
@@ -908,10 +943,12 @@ namespace ACE.Server.WorldObjects
             //        Generator_Regeneration();
             //}
 
+            ClearUnmanagedInventory();
+
             ResetMessagePending = false;
         }
 
-        private void GenerateContainList()
+        public void GenerateContainList()
         {
             if (Biota.PropertiesCreateList == null)
                 return;
@@ -922,6 +959,9 @@ namespace ACE.Server.WorldObjects
 
                 if (wo == null)
                     continue;
+
+                if (!Guid.IsPlayer())
+                    wo.GeneratorId = Guid.Full; // add this to mark item as "managed" so container resets don't delete it.
 
                 if (item.Palette > 0)
                     wo.PaletteTemplate = item.Palette;
@@ -1000,6 +1040,8 @@ namespace ACE.Server.WorldObjects
         public override bool IsStickyAttunedOrContainsStickyAttuned => base.IsStickyAttunedOrContainsStickyAttuned || Inventory.Values.Any(i => i.IsStickyAttunedOrContainsStickyAttuned);
 
         public override bool IsUniqueOrContainsUnique => base.IsUniqueOrContainsUnique || Inventory.Values.Any(i => i.IsUniqueOrContainsUnique);
+
+        public override bool IsBeingTradedOrContainsItemBeingTraded(HashSet<ObjectGuid> guidList) => base.IsBeingTradedOrContainsItemBeingTraded(guidList) || Inventory.Values.Any(i => i.IsBeingTradedOrContainsItemBeingTraded(guidList));
 
         public override List<WorldObject> GetUniqueObjects()
         {

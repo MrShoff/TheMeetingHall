@@ -11,43 +11,66 @@ using ACE.Server.WorldObjects;
 
 namespace ACE.Server.Physics.Common
 {
-    public class WeenieObject
+    public sealed class WeenieObject
     {
         private static readonly ILog log = LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
 
-        public uint ID;
-        public double UpdateTime;
+        // public readonly uint ID;
+        // public readonly double UpdateTime;
         public readonly WorldObjectInfo WorldObjectInfo;
         public WorldObject WorldObject => WorldObjectInfo?.TryGetWorldObject();
 
-        public bool IsMonster { get; set; }
 
-        public bool IsCombatPet { get; set; }
+        public readonly bool IsPlayer;
+        public readonly bool IsCreature;
+        public readonly bool IsStorage;
+        public readonly bool IsCorpse;
 
-        public bool IsFactionMob { get; set; }
+        public readonly bool IsMonster;
 
-        public FactionBits Faction1Bits { get; set; }
+        public readonly bool IsCombatPet;
 
-        public CreatureType? FoeType { get; set; }
+        public readonly bool IsFactionMob;
 
-        public WeenieObject() { }
+        public readonly FactionBits Faction1Bits;
+
+        public readonly CreatureType? FoeType;
+
+        public readonly PlayerKillerStatus PlayerKillerStatus;
+
+        private WeenieObject() { }
+
+        public static readonly WeenieObject DummyObject = new();
 
         public WeenieObject(WorldObject worldObject)
         {
             WorldObjectInfo = new WorldObjectInfo(worldObject);
-
-            if (!(worldObject is Creature creature))
+            if (worldObject is not Creature creature)
+            {
+                if (worldObject is Corpse)
+                    IsCorpse = true;
+                else if (worldObject is Storage)
+                    IsStorage = true;
                 return;
+            }
 
-            IsCombatPet = worldObject is CombatPet;
+            IsCreature = true;
 
-            IsMonster = creature.IsMonster && !IsCombatPet;
+            if (creature is Player)
+                IsPlayer = true;
+            else if (creature is CombatPet)
+                IsCombatPet = true;
+            else if (creature.IsMonster)
+                IsMonster = true;
+
 
             Faction1Bits = creature.Faction1Bits ?? FactionBits.None;
 
             IsFactionMob = IsMonster && Faction1Bits != FactionBits.None;
 
             FoeType = creature.FoeType;
+
+            PlayerKillerStatus = creature.PlayerKillerStatus;
         }
 
         public bool SameFaction(PhysicsObj obj)
@@ -69,6 +92,9 @@ namespace ACE.Server.Physics.Common
         public bool InqJumpVelocity(float extent, out float velocity_z)
         {
             velocity_z = 0.0f;
+
+            if (!IsPlayer)
+                return false;
 
             var player = WorldObject as Player;
 
@@ -99,6 +125,9 @@ namespace ACE.Server.Physics.Common
         /// </summary>
         public float? InqBurden()
         {
+            if (!IsPlayer)
+                return null;
+
             var player = WorldObject as Player;
 
             if (player == null)
@@ -130,39 +159,19 @@ namespace ACE.Server.Physics.Common
             return true;
         }
 
-        public bool IsCorpse()
-        {
-            return WorldObject is Corpse;
-        }
-
         public bool IsImpenetrable()
         {
-            return WorldObject is Player player && player.PlayerKillerStatus == PlayerKillerStatus.Free;
+            return IsPlayer && WorldObject is Player player && player.PlayerKillerStatus == PlayerKillerStatus.Free;
         }
 
         public bool IsPK()
         {
-            return WorldObject is Player player && player.IsPK;
+            return IsPlayer && WorldObject is Player player && player.IsPK;
         }
 
         public bool IsPKLite()
         {
-            return WorldObject is Player player && player.IsPKL;
-        }
-
-        public bool IsPlayer()
-        {
-            return WorldObject is Player;
-        }
-
-        public bool IsCreature()
-        {
-            return WorldObject is Creature;
-        }
-
-        public bool IsStorage()
-        {
-            return WorldObject is Storage;
+            return IsPlayer && WorldObject is Player player && player.IsPKL;
         }
 
         public float JumpStaminaCost(float extent, int staminaCost)
@@ -175,20 +184,21 @@ namespace ACE.Server.Physics.Common
             if (WorldObject == null)
                 return;
 
-            prof.WCID = ID;
+            // prof.WCID = ID;
             prof.ItemType = WorldObject.ItemType;
 
-            if (WorldObject is Creature)
+            if (IsCreature)
+            {
                 prof.Flags |= ObjCollisionProfileFlags.Creature;
 
-            if (WorldObject is Player)
-                prof.Flags |= ObjCollisionProfileFlags.Player;
+                if (IsPlayer)
+                    prof.Flags |= ObjCollisionProfileFlags.Player;
+            }
+            else if (WorldObject is Door)
+                prof.Flags |= ObjCollisionProfileFlags.Door;
 
             if (WorldObject.Attackable)
                 prof.Flags |= ObjCollisionProfileFlags.Attackable;
-
-            if (WorldObject is Door)
-                prof.Flags |= ObjCollisionProfileFlags.Door;
         }
 
         public int DoCollision(ObjCollisionProfile prof, ObjectGuid guid, PhysicsObj target)
@@ -228,7 +238,7 @@ namespace ACE.Server.Physics.Common
             if (wo == null)
                 return 0;
 
-            if (wo is Player player)
+            if (IsPlayer && wo is Player player)
                 player.HandleFallingDamage(prof);
             else
                 wo.OnCollideEnvironment();

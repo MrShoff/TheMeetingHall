@@ -1,15 +1,32 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
-namespace ACE.Database.Models.World
-{
-    public partial class WeeniePropertiesSpellBook
-    {
-        public uint Id { get; set; }
-        public uint ObjectId { get; set; }
-        public int Spell { get; set; }
-        public float Probability { get; set; }
+namespace ACE.Database.Models.World;
 
-        public virtual Weenie Object { get; set; }
-    }
+/// <summary>
+/// SpellBook Properties of Weenies
+/// </summary>
+public partial class WeeniePropertiesSpellBook
+{
+    /// <summary>
+    /// Unique Id of this Property
+    /// </summary>
+    public uint Id { get; set; }
+
+    /// <summary>
+    /// Id of the object this property belongs to
+    /// </summary>
+    public uint ObjectId { get; set; }
+
+    /// <summary>
+    /// Id of Spell
+    /// </summary>
+    public int Spell { get; set; }
+
+    /// <summary>
+    /// Chance to cast this spell
+    /// </summary>
+    public float Probability { get; set; }
+
+    public virtual Weenie Object { get; set; }
 }

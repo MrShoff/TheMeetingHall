@@ -1,14 +1,27 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
-namespace ACE.Database.Models.Shard
-{
-    public partial class BiotaPropertiesInt64
-    {
-        public uint ObjectId { get; set; }
-        public ushort Type { get; set; }
-        public long Value { get; set; }
+namespace ACE.Database.Models.Shard;
 
-        public virtual Biota Object { get; set; }
-    }
+/// <summary>
+/// Int64 Properties of Weenies
+/// </summary>
+public partial class BiotaPropertiesInt64
+{
+    /// <summary>
+    /// Id of the object this property belongs to
+    /// </summary>
+    public uint ObjectId { get; set; }
+
+    /// <summary>
+    /// Type of Property the value applies to (PropertyInt64.????)
+    /// </summary>
+    public ushort Type { get; set; }
+
+    /// <summary>
+    /// Value of this Property
+    /// </summary>
+    public long Value { get; set; }
+
+    public virtual Biota Object { get; set; }
 }

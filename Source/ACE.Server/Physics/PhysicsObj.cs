@@ -114,7 +114,7 @@ namespace ACE.Server.Physics
         public ObjectMaint ObjMaint;
         public bool IsPlayer => ID >= 0x50000001 && ID <= 0x5FFFFFFF;
 
-        public static readonly int UpdateTimeLength = 9;
+        public const int UpdateTimeLength = 9;
 
         public bool IsSticky => PositionManager?.StickyManager != null && PositionManager.StickyManager.TargetID != 0;
 
@@ -148,7 +148,7 @@ namespace ACE.Server.Physics
 
             // todo: only allocate these for server objects
             // get rid of 'DatObject', use the existing WeenieObj == null
-            WeenieObj = new WeenieObject();
+            WeenieObj = WeenieObject.DummyObject;
             ObjMaint = new ObjectMaint(this);
 
             if (PhysicsEngine.Instance != null && PhysicsEngine.Instance.Server)
@@ -385,7 +385,7 @@ namespace ACE.Server.Physics
             if (State.HasFlag(PhysicsState.Ethereal) && State.HasFlag(PhysicsState.IgnoreCollisions))
                 return TransitionState.OK;
 
-            if (WeenieObj != null && transition.ObjectInfo.State.HasFlag(ObjectInfoState.IsViewer) && WeenieObj.IsCreature())
+            if (WeenieObj != null && transition.ObjectInfo.State.HasFlag(ObjectInfoState.IsViewer) && WeenieObj.IsCreature)
                 return TransitionState.OK;
 
             if (State.HasFlag(PhysicsState.Ethereal) || !State.HasFlag(PhysicsState.Static) && transition.ObjectInfo.Ethereal)
@@ -400,13 +400,13 @@ namespace ACE.Server.Physics
 
             // TODO: reverse this check to make it more readable
             // TODO: investigate not initting WeenieObj for DatObjects
-            var exemption = !( /*WeenieObj == null*/ DatObject || !WeenieObj.IsPlayer() || !state.HasFlag(ObjectInfoState.IsPlayer) ||
+            var exemption = !( /*WeenieObj == null*/ DatObject || !WeenieObj.IsPlayer || !state.HasFlag(ObjectInfoState.IsPlayer) ||
                 state.HasFlag(ObjectInfoState.IsImpenetrable) || WeenieObj.IsImpenetrable() ||
                 state.HasFlag(ObjectInfoState.IsPK) && WeenieObj.IsPK() || state.HasFlag(ObjectInfoState.IsPKLite) && WeenieObj.IsPKLite());
 
             var missileIgnore = transition.ObjectInfo.MissileIgnore(this);
 
-            var isCreature = State.HasFlag(PhysicsState.Missile) || WeenieObj != null && WeenieObj.IsCreature();
+            var isCreature = State.HasFlag(PhysicsState.Missile) || WeenieObj != null && WeenieObj.IsCreature;
             //isCreature = false; // hack?
 
             if (!State.HasFlag(PhysicsState.HasPhysicsBSP) || missileIgnore || exemption)
@@ -1289,7 +1289,7 @@ namespace ACE.Server.Physics
                 return SetPositionError.OK;
             }
 
-            if (WeenieObj != null && (WeenieObj.IsStorage() || WeenieObj.IsCorpse()))
+            if (WeenieObj != null && (WeenieObj.IsStorage || WeenieObj.IsCorpse))
                 return ForceIntoCell(newCell, pos);
 
             //if (setPos.Flags.HasFlag(SetPositionFlags.DontCreateCells))
@@ -1309,6 +1309,21 @@ namespace ACE.Server.Physics
             {
                 // send initial CO as ethereal
                 WeenieObj.WorldObject.SetProperty(PropertyBool.Ethereal, true);
+            }
+
+            if (entering_world && transition.SpherePath.CurPos.Landblock != pos.Landblock)
+            {
+                // AdjustToOutside and find_cell_list can inconsistently result in 2 different cells for edges
+                // if something directly on a landblock edge has resulted in a different landblock from find_cell_list, discard completely
+
+                // this can also (more legitimately) happen even if the object isn't directly on landblock edge, but is near it
+                // an object trying to spawn on a hillside near a landblock edge might get pushed slightly during spawning,
+                // resulting in a successful spawn in a neighboring landblock. we don't handle adjustments to the actual landblock reference in here
+
+                // ideally CellArray.LoadCells = false would be passed to find_cell_list to prevent it from even attempting to load an unloaded neighboring landblock
+
+                log.DebugFormat("{0} ({1:X8}) AddPhysicsObj() - {2}) resulted in {3}, discarding", Name, ID, pos.ShortLoc(), transition.SpherePath.CurPos.ShortLoc());
+                return SetPositionError.NoValidPosition;
             }
 
             if (!SetPositionInternal(transition))
@@ -1421,7 +1436,7 @@ namespace ACE.Server.Physics
                         var groundZ = landblock.GetZ(newPos.Frame.Origin) + 0.05f;
 
                         if (Math.Abs(newPos.Frame.Origin.Z - groundZ) > ScatterThreshold_Z)
-                            log.Debug($"{Name} ({ID:X8}).SetScatterPositionInternal() - tried to spawn outdoor object @ {newPos} ground Z {groundZ} (diff: {newPos.Frame.Origin.Z - groundZ}), investigate ScatterThreshold_Z");
+                            log.DebugFormat("{0} ({1:X8}).SetScatterPositionInternal() - tried to spawn outdoor object @ {2} ground Z {3} (diff: {4}), investigate ScatterThreshold_Z", Name, ID, newPos, groundZ, newPos.Frame.Origin.Z - groundZ);
                         else
                             newPos.Frame.Origin.Z = groundZ;
 
@@ -1666,34 +1681,34 @@ namespace ACE.Server.Physics
                     }
                     else if ((State & PhysicsState.Sledding) != 0 && Velocity != Vector3.Zero)
                         newPos.Frame.set_vector_heading(Vector3.Normalize(Velocity));
-                }
 
-                if (GetBlockDist(Position, newPos) > 1)
-                {
-                    log.Warn($"WARNING: failed transition for {Name} from {Position} to {newPos}");
-                    return;
-                }
+                    if (GetBlockDist(Position, newPos) > 1)
+                    {
+                        log.Warn($"WARNING: failed transition for {Name} from {Position} to {newPos}");
+                        return;
+                    }
 
-                var transit = transition(Position, newPos, false);
+                    var transit = transition(Position, newPos, false);
 
 
-                // temporarily modified while debug path is examined
-                if (transit != null && transit.SpherePath.CurCell != null)
-                {
-                    CachedVelocity = Position.GetOffset(transit.SpherePath.CurPos) / (float)quantum;
+                    // temporarily modified while debug path is examined
+                    if (transit != null && transit.SpherePath.CurCell != null)
+                    {
+                        CachedVelocity = Position.GetOffset(transit.SpherePath.CurPos) / (float)quantum;
 
-                    SetPositionInternal(transit);
-                }
-                else
-                {
-                    if (IsPlayer)
-                        log.Debug($"{Name} ({ID:X8}).UpdateObjectInternal({quantum}) - failed transition from {Position} to {newPos}");
-                    else if (transit != null && transit.SpherePath.CurCell == null)
-                        log.Warn($"{Name} ({ID:X8}).UpdateObjectInternal({quantum}) - avoided CurCell=null from {Position} to {newPos}");
+                        SetPositionInternal(transit);
+                    }
+                    else
+                    {
+                        if (IsPlayer)
+                            log.DebugFormat("{0} ({1:X8}).UpdateObjectInternal({2}) - failed transition from {3} to {4}", Name, ID, quantum, Position, newPos);
+                        else if (transit != null && transit.SpherePath.CurCell == null)
+                            log.Warn($"{Name} ({ID:X8}).UpdateObjectInternal({quantum}) - avoided CurCell=null from {Position} to {newPos}");
 
-                    newPos.Frame.Origin = Position.Frame.Origin;
-                    set_initial_frame(newPos.Frame);
-                    CachedVelocity = Vector3.Zero;
+                        newPos.Frame.Origin = Position.Frame.Origin;
+                        set_initial_frame(newPos.Frame);
+                        CachedVelocity = Vector3.Zero;
+                    }
                 }
             }
             else
@@ -1767,7 +1782,7 @@ namespace ACE.Server.Physics
                 SetPositionInternal(transit);
             }
             else
-                log.Debug($"{Name}.UpdateObjectInternalServer({quantum}) - failed transition from {Position} to {RequestPos}");
+                log.DebugFormat("{0}.UpdateObjectInternalServer({1}) - failed transition from {2} to {3}", Name, quantum, Position, RequestPos);
 
             if (DetectionManager != null) DetectionManager.CheckDetection();
 
@@ -2657,9 +2672,8 @@ namespace ACE.Server.Physics
             }
             else if (collisions.CollidedWithEnvironment || !prev_on_walkable && TransientState.HasFlag(TransientStateFlags.OnWalkable))
             {
-                //retval = report_environment_collision(prev_has_contact);
-                report_environment_collision(prev_has_contact);
-                retval = true;
+                if (report_environment_collision(prev_has_contact))
+                    retval = true;
             }
 
             if (collisions.FramesStationaryFall <= 1)
@@ -2686,7 +2700,7 @@ namespace ACE.Server.Physics
             }
             else
             {
-                //Velocity = Vector3.Zero;  // gets objects stuck in falling state?
+                Velocity = Vector3.Zero;
                 if (collisions.FramesStationaryFall == 3)
                 {
                     TransientState &= ~TransientStateFlags.StationaryComplete;
@@ -2789,9 +2803,9 @@ namespace ACE.Server.Physics
             if (CurCell == null || obj.CurCell == null)
             {
                 if (CurCell == null)
-                    log.Error($"{Name}.handle_visible_obj({obj.Name}): CurCell null");
+                    log.Warn($"{Name}.handle_visible_obj({obj.Name}): CurCell null");
                 else
-                    log.Error($"{Name}.handle_visible_obj({obj.Name}): obj.CurCell null");
+                    log.Warn($"{Name}.handle_visible_obj({obj.Name}): obj.CurCell null");
 
                 return false;
             }

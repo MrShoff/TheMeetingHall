@@ -1,16 +1,12 @@
-extern alias MySqlConnectorAlias;
-
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
-using System.Net;
+using System.Text.Json;
 using System.Threading;
-using System.Collections.Generic;
 
 using ACE.Common;
-
-using Newtonsoft.Json;
 
 namespace ACE.Server
 {
@@ -25,20 +21,14 @@ namespace ACE.Server
                 var currentVersion = worldDb.GetVersion();
                 log.Info($"Current World Database version: Base - {currentVersion.BaseVersion} | Patch - {currentVersion.PatchVersion}");
 
-                var url = "https://api.github.com/repos/ACEmulator/ACE-World-16PY-Patches/releases";
-                var request = (HttpWebRequest)WebRequest.Create(url);
-                request.UserAgent = "ACE.Server";
+                var url = "https://api.github.com/repos/ACEmulator/ACE-World-16PY-Patches/releases/latest";
 
-                var response = request.GetResponse();
-                var reader = new StreamReader(response.GetResponseStream(), System.Text.Encoding.UTF8);
-                var html = reader.ReadToEnd();
-                reader.Close();
-                response.Close();
-
-                dynamic json = JsonConvert.DeserializeObject(html);
-                string tag = json[0].tag_name;
-                string dbURL = json[0].assets[0].browser_download_url;
-                string dbFileName = json[0].assets[0].name;
+                using var client = new WebClient();
+                var html = client.GetStringFromURL(url).Result;
+                var json = JsonSerializer.Deserialize<JsonElement>(html);
+                string tag = json.GetProperty("tag_name").GetString();
+                string dbURL = json.GetProperty("assets")[0].GetProperty("browser_download_url").GetString();
+                string dbFileName = json.GetProperty("assets")[0].GetProperty("name").GetString();
 
                 if (currentVersion.PatchVersion != tag)
                 {
@@ -89,17 +79,16 @@ namespace ACE.Server
             }
 
             Console.Write($"Downloading {dbFileName} .... ");
-            using (var client = new WebClient())
+            using var client = new WebClient();
+            try
             {
-                try
-                {
-                    client.DownloadFile(dbURL, dbFileName);
-                }
-                catch
-                {
-                    Console.Write($"Download for {dbFileName} failed!");
-                    return;
-                }
+                var dlTask = client.DownloadFile(dbURL, dbFileName);
+                dlTask.Wait();
+            }
+            catch
+            {
+                Console.Write($"Download for {dbFileName} failed!");
+                return;
             }
             Console.WriteLine("download complete!");
 
@@ -114,24 +103,27 @@ namespace ACE.Server
             Console.Write($"Importing {sqlFile} into SQL server at {ConfigManager.Config.MySql.World.Host}:{ConfigManager.Config.MySql.World.Port} (This will take a while, please be patient) .... ");
             using (var sr = File.OpenText(sqlFile))
             {
-                var sqlConnect = new MySql.Data.MySqlClient.MySqlConnection($"server={ConfigManager.Config.MySql.World.Host};port={ConfigManager.Config.MySql.World.Port};user={ConfigManager.Config.MySql.World.Username};password={ConfigManager.Config.MySql.World.Password};DefaultCommandTimeout=120");
+                var sqlConnect = new MySqlConnector.MySqlConnection($"server={ConfigManager.Config.MySql.World.Host};port={ConfigManager.Config.MySql.World.Port};user={ConfigManager.Config.MySql.World.Username};password={ConfigManager.Config.MySql.World.Password};{ConfigManager.Config.MySql.World.ConnectionOptions}");
 
                 var line = string.Empty;
                 var completeSQLline = string.Empty;
+
+                var dbname = ConfigManager.Config.MySql.World.Database;
+
                 while ((line = sr.ReadLine()) != null)
                 {
+                    line = line.Replace("ace_world", dbname);
                     //do minimal amount of work here
                     if (line.EndsWith(";"))
                     {
                         completeSQLline += line + Environment.NewLine;
 
-                        var script = new MySql.Data.MySqlClient.MySqlScript(sqlConnect, completeSQLline);
+                        var script = new MySqlConnector.MySqlCommand(completeSQLline, sqlConnect);
                         try
                         {
-                            script.StatementExecuted += new MySql.Data.MySqlClient.MySqlStatementExecutedEventHandler(OnStatementExecutedOutputDot);
-                            var count = script.Execute();
+                            ExecuteScript(script);
                         }
-                        catch (MySql.Data.MySqlClient.MySqlException)
+                        catch (MySqlConnector.MySqlException)
                         {
 
                         }
@@ -140,6 +132,7 @@ namespace ACE.Server
                     else
                         completeSQLline += line + Environment.NewLine;
                 }
+                CleanupConnection(sqlConnect);
             }
             Console.WriteLine(" complete!");
 
@@ -150,9 +143,9 @@ namespace ACE.Server
 
         private static string GetContentFolder()
         {
-            var sqlConnect = new MySql.Data.MySqlClient.MySqlConnection($"server={ConfigManager.Config.MySql.Shard.Host};port={ConfigManager.Config.MySql.Shard.Port};user={ConfigManager.Config.MySql.Shard.Username};password={ConfigManager.Config.MySql.Shard.Password};database={ConfigManager.Config.MySql.Shard.Database}");
+            var sqlConnect = new MySqlConnector.MySqlConnection($"server={ConfigManager.Config.MySql.Shard.Host};port={ConfigManager.Config.MySql.Shard.Port};user={ConfigManager.Config.MySql.Shard.Username};password={ConfigManager.Config.MySql.Shard.Password};database={ConfigManager.Config.MySql.Shard.Database};{ConfigManager.Config.MySql.Shard.ConnectionOptions}");
             var sqlQuery = "SELECT `value` FROM config_properties_string WHERE `key` = 'content_folder';";
-            var sqlCommand = new MySql.Data.MySqlClient.MySqlCommand(sqlQuery, sqlConnect);
+            var sqlCommand = new MySqlConnector.MySqlCommand(sqlQuery, sqlConnect);
 
             sqlConnect.Open();
             var sqlReader = sqlCommand.ExecuteReader();
@@ -197,29 +190,30 @@ namespace ACE.Server
                 var contentDI = new DirectoryInfo(path);
                 if (contentDI.Exists)
                 {
-                    Console.Write($"Searching for SQL files within {path} .... ");
+                    Console.WriteLine($"Searching for SQL files within {path} .... ");
 
+                    var sqlConnect = new MySqlConnector.MySqlConnection($"server={ConfigManager.Config.MySql.World.Host};port={ConfigManager.Config.MySql.World.Port};user={ConfigManager.Config.MySql.World.Username};password={ConfigManager.Config.MySql.World.Password};database={ConfigManager.Config.MySql.World.Database};{ConfigManager.Config.MySql.World.ConnectionOptions}");
                     foreach (var file in contentDI.GetFiles("*.sql", content_folders_search_option).OrderBy(f => f.FullName))
                     {
                         Console.Write($"Found {file.FullName} .... ");
                         var sqlDBFile = File.ReadAllText(file.FullName);
-                        var sqlConnect = new MySql.Data.MySqlClient.MySqlConnection($"server={ConfigManager.Config.MySql.World.Host};port={ConfigManager.Config.MySql.World.Port};user={ConfigManager.Config.MySql.World.Username};password={ConfigManager.Config.MySql.World.Password};database={ConfigManager.Config.MySql.World.Database};DefaultCommandTimeout=120");
-                        var script = new MySql.Data.MySqlClient.MySqlScript(sqlConnect, sqlDBFile);
+                        sqlDBFile = sqlDBFile.Replace("ace_world", ConfigManager.Config.MySql.World.Database);
+                        var script = new MySqlConnector.MySqlCommand(sqlDBFile, sqlConnect);
 
                         Console.Write($"Importing into World database on SQL server at {ConfigManager.Config.MySql.World.Host}:{ConfigManager.Config.MySql.World.Port} .... ");
                         try
                         {
-                            script.StatementExecuted += new MySql.Data.MySqlClient.MySqlStatementExecutedEventHandler(OnStatementExecutedOutputDot);
-                            var count = script.Execute();
+                            ExecuteScript(script);
                             //Console.Write($" {count} database records affected ....");
                             Console.WriteLine(" complete!");
                         }
-                        catch (MySql.Data.MySqlClient.MySqlException ex)
+                        catch (MySqlConnector.MySqlException ex)
                         {
                             Console.WriteLine($" error!");
                             Console.WriteLine($" Unable to apply patch due to following exception: {ex}");
                         }
                     }
+                    CleanupConnection(sqlConnect);
                 }
             });
 
@@ -231,18 +225,41 @@ namespace ACE.Server
             log.Info($"Automatic Database Patching started...");
             Thread.Sleep(1000);
 
-            PatchDatabase("Authentication", ConfigManager.Config.MySql.Authentication.Host, ConfigManager.Config.MySql.Authentication.Port, ConfigManager.Config.MySql.Authentication.Username, ConfigManager.Config.MySql.Authentication.Password, ConfigManager.Config.MySql.Authentication.Database);
-            PatchDatabase("Shard", ConfigManager.Config.MySql.Shard.Host, ConfigManager.Config.MySql.Shard.Port, ConfigManager.Config.MySql.Shard.Username, ConfigManager.Config.MySql.Shard.Password, ConfigManager.Config.MySql.Shard.Database);
-            PatchDatabase("World", ConfigManager.Config.MySql.World.Host, ConfigManager.Config.MySql.World.Port, ConfigManager.Config.MySql.World.Username, ConfigManager.Config.MySql.World.Password, ConfigManager.Config.MySql.World.Database);
+            PatchDatabase("Authentication", ConfigManager.Config.MySql.Authentication.Host, ConfigManager.Config.MySql.Authentication.Port, ConfigManager.Config.MySql.Authentication.Username, ConfigManager.Config.MySql.Authentication.Password, ConfigManager.Config.MySql.Authentication.Database, ConfigManager.Config.MySql.Shard.Database, ConfigManager.Config.MySql.World.Database);
+            PatchDatabase("Shard", ConfigManager.Config.MySql.Shard.Host, ConfigManager.Config.MySql.Shard.Port, ConfigManager.Config.MySql.Shard.Username, ConfigManager.Config.MySql.Shard.Password, ConfigManager.Config.MySql.Authentication.Database, ConfigManager.Config.MySql.Shard.Database, ConfigManager.Config.MySql.World.Database);
+            PatchDatabase("World", ConfigManager.Config.MySql.World.Host, ConfigManager.Config.MySql.World.Port, ConfigManager.Config.MySql.World.Username, ConfigManager.Config.MySql.World.Password, ConfigManager.Config.MySql.Authentication.Database, ConfigManager.Config.MySql.Shard.Database, ConfigManager.Config.MySql.World.Database);
 
             Thread.Sleep(1000);
             log.Info($"Automatic Database Patching complete.");
         }
 
-        private static void PatchDatabase(string dbType, string host, uint port, string username, string password, string database)
+        private static void PatchDatabase(string dbType, string host, uint port, string username, string password, string authDB, string shardDB, string worldDB)
         {
             var updatesPath = $"DatabaseSetupScripts{Path.DirectorySeparatorChar}Updates{Path.DirectorySeparatorChar}{dbType}";
             var updatesFile = $"{updatesPath}{Path.DirectorySeparatorChar}applied_updates.txt";
+
+            if (!Directory.Exists(updatesPath))
+            {
+                // File not found in Environment.CurrentDirectory
+                // Lets try the ExecutingAssembly Location
+                var executingAssemblyLocation = System.Reflection.Assembly.GetExecutingAssembly().Location;
+
+                var directoryName = Path.GetFullPath(Path.GetDirectoryName(executingAssemblyLocation));
+
+                updatesPath = Path.Combine(directoryName, $"DatabaseSetupScripts{Path.DirectorySeparatorChar}Updates{Path.DirectorySeparatorChar}{dbType}");
+
+                if (!Directory.Exists(updatesPath))
+                {
+                    Console.WriteLine($" error!");
+                    Console.WriteLine($" Unable to locate updates directory");
+                }
+                else
+                {
+                    updatesFile = $"{updatesPath}{Path.DirectorySeparatorChar}applied_updates.txt";
+                }
+
+            }
+
             var appliedUpdates = Array.Empty<string>();
 
             var containerUpdatesFile = $"/ace/Config/{dbType}_applied_updates.txt";
@@ -260,23 +277,39 @@ namespace ACE.Server
 
                 Console.Write($"Found {file.Name} .... ");
                 var sqlDBFile = File.ReadAllText(file.FullName);
-                var sqlConnect = new MySql.Data.MySqlClient.MySqlConnection($"server={host};port={port};user={username};password={password};database={database};DefaultCommandTimeout=120");
-                var script = new MySql.Data.MySqlClient.MySqlScript(sqlConnect, sqlDBFile);
+                var database = "";
+                switch (dbType)
+                {
+                    case "Authentication":
+                        database = authDB;
+                        break;
+                    case "Shard":
+                        database = shardDB;
+                        break;
+                    case "World":
+                        database = worldDB;
+                        break;
+                }
+                var sqlConnect = new MySqlConnector.MySqlConnection($"server={host};port={port};user={username};password={password};database={database};DefaultCommandTimeout=120;SslMode=None;AllowPublicKeyRetrieval=true");
+                sqlDBFile = sqlDBFile.Replace("ace_auth", authDB);
+                sqlDBFile = sqlDBFile.Replace("ace_shard", shardDB);
+                sqlDBFile = sqlDBFile.Replace("ace_world", worldDB);
+                var script = new MySqlConnector.MySqlCommand(sqlDBFile, sqlConnect);
 
                 Console.Write($"Importing into {database} database on SQL server at {host}:{port} .... ");
                 try
                 {
-                    script.StatementExecuted += new MySql.Data.MySqlClient.MySqlStatementExecutedEventHandler(OnStatementExecutedOutputDot);
-                    var count = script.Execute();
+                    ExecuteScript(script);
                     //Console.Write($" {count} database records affected ....");
                     Console.WriteLine(" complete!");
                 }
-                catch (MySql.Data.MySqlClient.MySqlException ex)
+                catch (MySqlConnector.MySqlException ex)
                 {
                     Console.WriteLine($" error!");
                     Console.WriteLine($" Unable to apply patch due to following exception: {ex}");
                 }
                 File.AppendAllText(updatesFile, file.Name + Environment.NewLine);
+                CleanupConnection(sqlConnect);
             }
 
             if (IsRunningInContainer && File.Exists(updatesFile))

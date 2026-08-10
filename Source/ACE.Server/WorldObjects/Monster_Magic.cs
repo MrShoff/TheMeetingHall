@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 
 using ACE.Common;
+using ACE.DatLoader;
 using ACE.Entity.Enum;
 using ACE.Entity.Enum.Properties;
 using ACE.Entity.Models;
@@ -46,9 +47,9 @@ namespace ACE.Server.WorldObjects
         }
 
         /// <summary>
-        /// Returns TRUE if monster is a spell caster
+        /// Returns TRUE if monster has known spells
         /// </summary>
-        private bool IsCaster => Biota.HasKnownSpell(BiotaDatabaseLock);
+        private bool HasKnownSpells => Biota.HasKnownSpell(BiotaDatabaseLock);
 
         /// <summary>
         /// The next spell the monster will attempt to cast
@@ -148,6 +149,14 @@ namespace ACE.Server.WorldObjects
             // turn to?
             if (AiUsesMana && !UseMana()) return;
 
+            // spell words
+            if (AiUseHumanMagicAnimations)
+            {
+                var spellWords = spell._spellBase.GetSpellWords(DatManager.PortalDat.SpellComponentsTable);
+                if (!string.IsNullOrWhiteSpace(spellWords))
+                    EnqueueBroadcast(new GameMessageHearSpeech(spellWords, Name, Guid.Full, ChatMessageType.Spellcasting), LocalBroadcastRange);
+            }
+
             var preCastTime = PreCastMotion(AttackTarget);
 
             var actionChain = new ActionChain();
@@ -191,9 +200,9 @@ namespace ACE.Server.WorldObjects
             return true;
         }
 
-        private static readonly float PreCastSpeed = 2.0f;
-        private static readonly float PostCastSpeed = 1.0f;
-        private static readonly float PostCastSpeed_Ranged = 1.66f;  // ??
+        private const float PreCastSpeed = 2.0f;
+        private const float PostCastSpeed = 1.0f;
+        private const float PostCastSpeed_Ranged = 1.66f;  // ??
 
         /// <summary>
         /// Perform the first part of monster spell casting animation - spreading arms out
@@ -271,9 +280,16 @@ namespace ACE.Server.WorldObjects
             else if (targetSelf)
                 target = this;
 
+            var caster = GetEquippedWand();
+
             // handle self procs
             if (spell.IsHarmful && target != this)
-                TryProcEquippedItems(this, true);
+                TryProcEquippedItems(this, this, true, caster);
+
+            // If the target is too far away, don't cast. This checks to see of this monster and the target are on separate landblock groups, and potentially separate threads.
+            // This also fixes cross-threading issues
+            if (target != null && (CurrentLandblock == null || target.CurrentLandblock == null || CurrentLandblock.CurrentLandblockGroup != target.CurrentLandblock.CurrentLandblockGroup))
+                return;
 
             // try to resist spell, if applicable
             if (TryResistSpell(target, spell))
@@ -284,20 +300,18 @@ namespace ACE.Server.WorldObjects
 
             var targetCreature = target as Creature;
 
+            // TODO: see if this can be coalesced
             switch (spell.School)
             {
                 case MagicSchool.CreatureEnchantment:
 
-                    CreatureMagic(target, spell);
-
-                    if (target != null)
-                        EnqueueBroadcast(new GameMessageScript(target.Guid, spell.TargetEffect, spell.Formula.Scale));
+                    HandleCastSpell(spell, target);
 
                     if (spell.IsHarmful)
                     {
                         // handle target procs
                         if (targetCreature != null && targetCreature != this)
-                            TryProcEquippedItems(targetCreature, false);
+                            TryProcEquippedItems(this, targetCreature, false, caster);
                     }
                     break;
 
@@ -308,41 +322,25 @@ namespace ACE.Server.WorldObjects
 
                 case MagicSchool.LifeMagic:
 
-                    var targetDeath = LifeMagic(spell, out uint damage, out var msg, target);
+                    HandleCastSpell(spell, target, null, caster);
 
                     if (spell.MetaSpellType != SpellType.LifeProjectile)
                     {
                         TryHandleFactionMob(target);
 
-                        if (target != null)
-                            EnqueueBroadcast(new GameMessageScript(target.Guid, spell.TargetEffect, spell.Formula.Scale));
-
                         if (spell.IsHarmful)
                         {
                             // handle target procs
                             if (targetCreature != null && targetCreature != this)
-                                TryProcEquippedItems(targetCreature, false);
+                                TryProcEquippedItems(this, targetCreature, false, caster);
                         }
                     }
-                    if (targetDeath && targetCreature != null)
-                    {
-                        targetCreature.OnDeath(new DamageHistoryInfo(this), DamageType.Health, false);
-                        targetCreature.Die();
-                    }
-                    break;
-
-                case MagicSchool.VoidMagic:
-
-                    VoidMagic(target, spell, this);
-
-                    if (spell.NumProjectiles == 0 && target != null)
-                        EnqueueBroadcast(new GameMessageScript(target.Guid, spell.TargetEffect, spell.Formula.Scale));
-
                     break;
 
                 case MagicSchool.WarMagic:
+                case MagicSchool.VoidMagic:
 
-                    WarMagic(target, spell, this);
+                    HandleCastSpell(spell, target, caster);
                     break;
             }
         }
@@ -413,6 +411,17 @@ namespace ACE.Server.WorldObjects
                 return;
 
             MonsterOnAttackMonster(creatureTarget);
+        }
+        /// <summary>
+        /// Checks for AiUseHumanMagicAnimations and if true, sets CurrentSpell and sets combat mode to Magic
+        /// </summary>
+        public void CheckForHumanPreCast(Spell spell)
+        {
+            if (AiUseHumanMagicAnimations)
+            {
+                CurrentSpell = new Spell(spell.Id);
+                SetCombatMode(CombatMode.Magic);
+            }
         }
     }
 }

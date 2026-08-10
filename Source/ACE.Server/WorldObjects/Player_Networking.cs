@@ -1,6 +1,7 @@
 using System;
 
 using ACE.Common;
+using ACE.Common.Extensions;
 using ACE.Database.Models.Shard;
 using ACE.Entity;
 using ACE.Entity.Enum;
@@ -24,7 +25,7 @@ namespace ACE.Server.WorldObjects
             PlayerManager.SwitchPlayerFromOfflineToOnline(this);
             Teleporting = true;
 
-            // Save the the LoginTimestamp
+            // Save the LoginTimestamp
             var lastLoginTimestamp = Time.GetUnixTime();
 
             LoginTimestamp = lastLoginTimestamp;
@@ -46,9 +47,15 @@ namespace ACE.Server.WorldObjects
 
             if (!Account15Days)
             {
-                var accountTimeSpan = DateTime.UtcNow - Account.CreateTime;
-                if (accountTimeSpan.TotalDays >= 15)
+                var accountAge = DateTime.UtcNow - Account.CreateTime;
+
+                if (accountAge.TotalDays >= 15)
                     Account15Days = true;
+
+                ManageAccount15Days_HousePurchaseTimestamp();
+
+                if (!Account15Days && IsOlthoiPlayer)
+                    Session.Network.EnqueueSend(new GameMessageSystemChat("You may not leave Olthoi Island until your account and this character have been active on this game world for 15 days.", ChatMessageType.Broadcast));
             }
 
             if (PlayerKillerStatus == PlayerKillerStatus.PKLite && !PropertyManager.GetBool("pkl_server").Item)
@@ -63,6 +70,8 @@ namespace ACE.Server.WorldObjects
                 });
                 actionChain.EnqueueChain();
             }
+
+            HandlePreOrderItems();
 
             // SendSelf will trigger the entrance into portal space
             SendSelf();
@@ -79,18 +88,25 @@ namespace ACE.Server.WorldObjects
                 // Init the client with the chat channel ID's, and then notify the player that they've joined the associated channels.
                 Session.Network.EnqueueSend(new GameEventWeenieError(Session, WeenieError.TurbineChatIsEnabled));
 
-                if (GetCharacterOption(CharacterOption.ListenToAllegianceChat) && Allegiance != null)
-                    JoinTurbineChatChannel("Allegiance");
-                if (GetCharacterOption(CharacterOption.ListenToGeneralChat))
-                    JoinTurbineChatChannel("General");
-                if (GetCharacterOption(CharacterOption.ListenToTradeChat))
-                    JoinTurbineChatChannel("Trade");
-                if (GetCharacterOption(CharacterOption.ListenToLFGChat))
-                    JoinTurbineChatChannel("LFG");
-                if (GetCharacterOption(CharacterOption.ListenToRoleplayChat))
-                    JoinTurbineChatChannel("Roleplay");
-                if (GetCharacterOption(CharacterOption.ListenToSocietyChat) && Society != FactionBits.None)
-                    JoinTurbineChatChannel("Society");
+                if (IsOlthoiPlayer)
+                {
+                    JoinTurbineChatChannel("Olthoi");
+                }
+                else
+                {
+                    if (GetCharacterOption(CharacterOption.ListenToAllegianceChat) && Allegiance != null)
+                        JoinTurbineChatChannel("Allegiance");
+                    if (GetCharacterOption(CharacterOption.ListenToGeneralChat))
+                        JoinTurbineChatChannel("General");
+                    if (GetCharacterOption(CharacterOption.ListenToTradeChat))
+                        JoinTurbineChatChannel("Trade");
+                    if (GetCharacterOption(CharacterOption.ListenToLFGChat))
+                        JoinTurbineChatChannel("LFG");
+                    if (GetCharacterOption(CharacterOption.ListenToRoleplayChat))
+                        JoinTurbineChatChannel("Roleplay");
+                    if (GetCharacterOption(CharacterOption.ListenToSocietyChat) && Society != FactionBits.None)
+                        JoinTurbineChatChannel("Society");
+                }
             }
 
             // check if vassals earned XP while offline
@@ -111,6 +127,7 @@ namespace ACE.Server.WorldObjects
             HandleSkillSpecCreditRefund();
             HandleFreeSkillResetRenewal();
             HandleFreeAttributeResetRenewal();
+            HandleFreeMasteryResetRenewal();
 
             HandleDBUpdates();
 
@@ -133,6 +150,8 @@ namespace ACE.Server.WorldObjects
                 });
                 actionChain.EnqueueChain();
             }
+
+            log.DebugFormat("[LOGIN] Account {0} entered the world with character {1} (0x{2}) at {3}.", Account.AccountName, Name, Guid, DateTime.Now.ToCommonString());
         }
 
         public void SendTurbineChatChannels(bool breakAllegiance = false)
@@ -167,7 +186,7 @@ namespace ACE.Server.WorldObjects
                     _ => channelName
                 };
             }
-            else if (channelName == "Olthoi") //todo: olthoi play
+            else if (channelName == "Olthoi" && !IsOlthoiPlayer)
                 return;
 
             Session.Network.EnqueueSend(new GameEventWeenieErrorWithString(Session, WeenieErrorWithString.YouHaveEnteredThe_Channel, channelName));
@@ -192,7 +211,9 @@ namespace ACE.Server.WorldObjects
                     _ => channelName
                 };
             }
-            else if (channelName == "Olthoi") //todo: olthoi play
+            else if (channelName == "Olthoi" && (!IsOlthoiPlayer || !IsAdmin))
+                return;
+            else if (IsOlthoiPlayer && !IsAdmin && channelName != "Olthoi")
                 return;
 
             Session.Network.EnqueueSend(new GameEventWeenieErrorWithString(Session, WeenieErrorWithString.YouHaveLeftThe_Channel, channelName));
@@ -247,41 +268,38 @@ namespace ACE.Server.WorldObjects
             foreach (var item in EquippedObjects.Values)
             {
                 item.Wielder = this;
-                Session.Network.EnqueueSend(new GameMessageCreateObject(item));                
+                Session.Network.EnqueueSend(new GameMessageCreateObject(item));
             }
         }
 
         public void SendContractTrackerTable()
         {
-            if (ContractManager.Contracts.Count > 0)
+            if (Character.GetContractsCount(CharacterDatabaseLock) > 0)
                 Session.Network.EnqueueSend(new GameEventSendClientContractTrackerTable(Session));
         }
 
         /// <summary>
         /// Will send out GameEventFriendsListUpdate packets to everyone online that has this player as a friend.
         /// </summary>
-        public void SendFriendStatusUpdates()
+        public void SendFriendStatusUpdates(bool previouslyOnline, bool isOnline)
         {
-            var inverseFriends = PlayerManager.GetOnlineInverseFriends(Guid);
+            var appearOffline = GetAppearOffline();
+            var previouslyOnlineAndIsNowOffline = previouslyOnline && !isOnline;
+            var previouslyOfflineAndIsNowOnline = !previouslyOnline && isOnline;
+            var previouslyOfflineAndAppearOffline = !previouslyOnline && appearOffline;
 
-            foreach (var friend in inverseFriends)
+            if ((previouslyOfflineAndIsNowOnline && !previouslyOfflineAndAppearOffline) || previouslyOnlineAndIsNowOffline)
             {
-                var playerFriend = new CharacterPropertiesFriendList { CharacterId = friend.Guid.Full, FriendId = Guid.Full };
-                friend.Session.Network.EnqueueSend(new GameEventFriendsListUpdate(friend.Session, GameEventFriendsListUpdate.FriendsUpdateTypeFlag.FriendStatusChanged, playerFriend, true, !GetAppearOffline()));
-            }
-        }
+                var msg = $"{Name} has {(isOnline ? "come on" : "gone off")}line.";
 
-        /// <summary>
-        /// Will send out GameEventFriendsListUpdate packets to everyone online that has this player as a friend.
-        /// </summary>
-        public void SendFriendStatusUpdates(bool onlineStatus)
-        {
-            var inverseFriends = PlayerManager.GetOnlineInverseFriends(Guid);
+                var inverseFriends = PlayerManager.GetOnlineInverseFriends(Guid);
 
-            foreach (var friend in inverseFriends)
-            {
-                var playerFriend = new CharacterPropertiesFriendList { CharacterId = friend.Guid.Full, FriendId = Guid.Full };
-                friend.Session.Network.EnqueueSend(new GameEventFriendsListUpdate(friend.Session, GameEventFriendsListUpdate.FriendsUpdateTypeFlag.FriendStatusChanged, playerFriend, true, onlineStatus));
+                foreach (var friend in inverseFriends)
+                {
+                    var playerFriend = new CharacterPropertiesFriendList { CharacterId = friend.Guid.Full, FriendId = Guid.Full };
+                    friend.Session.Network.EnqueueSend(new GameEventFriendsListUpdate(friend.Session, GameEventFriendsListUpdate.FriendsUpdateTypeFlag.FriendStatusChanged, playerFriend, true, isOnline));
+                    friend.SendMessage(msg);
+                }
             }
         }
 
@@ -343,6 +361,15 @@ namespace ACE.Server.WorldObjects
             }
 
             var movementData = new MovementData(this, moveToState);
+
+            // copy some fields to CurrentMotionState?
+            // this is a mess, fix this whole architecture.
+            CurrentMotionState.MotionState.ForwardCommand = movementData.Invalid.State.ForwardCommand;
+            CurrentMotionState.MotionState.ForwardSpeed = movementData.Invalid.State.ForwardSpeed;
+            CurrentMotionState.MotionState.TurnCommand = movementData.Invalid.State.TurnCommand;
+            CurrentMotionState.MotionState.TurnSpeed = movementData.Invalid.State.TurnSpeed;
+            CurrentMotionState.MotionState.SidestepCommand = movementData.Invalid.State.SidestepCommand;
+            CurrentMotionState.MotionState.SidestepSpeed = movementData.Invalid.State.SidestepSpeed;
 
             var movementEvent = new GameMessageUpdateMotion(this, movementData);
             EnqueueBroadcast(true, movementEvent);    // shouldn't need to go to originating player?
@@ -433,6 +460,61 @@ namespace ACE.Server.WorldObjects
                 afkMessage = DefaultAFKMessage; // client default
 
             AfkMessage = afkMessage;
+        }
+
+        public void HandlePreOrderItems()
+        {
+            var subscriptionStatus = (SubscriptionStatus)PropertyManager.GetLong("default_subscription_level").Item;
+
+            string status;
+            bool success;
+            switch (subscriptionStatus)
+            {
+                default:
+                    status = "purchasing";
+                    success = TryCreatePreOrderItem(PropertyBool.ActdReceivedItems, ACE.Entity.Enum.WeenieClassName.W_GEMACTDPURCHASEREWARDARMOR_CLASS);
+                    break;
+                case SubscriptionStatus.ThroneOfDestiny_Preordered:
+                    status = "pre-ordering";
+                    TryCreatePreOrderItem(PropertyBool.ActdReceivedItems, ACE.Entity.Enum.WeenieClassName.W_GEMACTDPURCHASEREWARDARMOR_CLASS); // pcaps show this actually didn't occur on retail. odd
+                    success = TryCreatePreOrderItem(PropertyBool.ActdPreorderReceivedItems, ACE.Entity.Enum.WeenieClassName.W_GEMACTDPURCHASEREWARDHEALTH_CLASS);
+                    break;
+            }
+
+            var msg = $"Thank you for {status} the Throne of Destiny expansion! A special gift has been placed in your backpack.";
+
+            if (PropertyManager.GetBool("show_first_login_gift").Item && success)
+                Session.Network.EnqueueSend(new GameMessageSystemChat(msg, ChatMessageType.Magic));
+
+            AccountRequirements = subscriptionStatus;
+        }
+
+        private bool TryCreatePreOrderItem(PropertyBool propertyBool, WeenieClassName weenieClassName)
+        {
+            var rcvdBlackmoorsFavor = GetProperty(propertyBool) ?? false;
+            if (!rcvdBlackmoorsFavor)
+            {
+                if (GetInventoryItemsOfWCID((uint)weenieClassName).Count == 0)
+                {
+                    var cachedWeenie = Database.DatabaseManager.World.GetCachedWeenie((uint)weenieClassName);
+                    if (cachedWeenie == null)
+                        return false;
+
+                    var wo = Factories.WorldObjectFactory.CreateNewWorldObject(cachedWeenie);
+                    if (wo == null)
+                        return false;
+
+                    if (TryAddToInventory(wo))
+                    {
+                        SetProperty(propertyBool, true);
+                        return true;
+                    }
+                }
+                else
+                    SetProperty(propertyBool, true); // already had the item, set the property to reflect item was received
+            }
+
+            return false;
         }
     }
 }

@@ -84,6 +84,11 @@ namespace ACE.Server.Entity
         private readonly LinkedList<WorldObject> sortedGeneratorsByNextGeneratorUpdate = new LinkedList<WorldObject>();
         private readonly LinkedList<WorldObject> sortedGeneratorsByNextRegeneration = new LinkedList<WorldObject>();
 
+        /// <summary>
+        /// This is used to detect and manage cross-landblock group (which is potentially cross-thread) operations.
+        /// </summary>
+        public LandblockGroup CurrentLandblockGroup { get; internal set; }
+
         public List<Landblock> Adjacents = new List<Landblock>();
 
         private readonly ActionQueue actionQueue = new ActionQueue();
@@ -162,11 +167,11 @@ namespace ACE.Server.Entity
 
         public Landblock(LandblockId id)
         {
-            //log.Debug($"Landblock({(id.Raw | 0xFFFF):X8})");
+            //log.DebugFormat("Landblock({0:X8})", (id.Raw | 0xFFFF));
 
             Id = id;
 
-            CellLandblock = DatManager.CellDat.ReadFromDat<CellLandblock>(Id.Raw >> 16 | 0xFFFF);
+            CellLandblock = DatManager.CellDat.ReadFromDat<CellLandblock>(Id.Raw | 0xFFFF);
             LandblockInfo = DatManager.CellDat.ReadFromDat<LandblockInfo>((uint)Id.Landblock << 16 | 0xFFFE);
 
             lastActiveTime = DateTime.UtcNow;
@@ -288,7 +293,10 @@ namespace ACE.Server.Entity
 
                     var sortCell = LScape.get_landcell(pos.ObjCellID) as SortCell;
                     if (sortCell != null && sortCell.has_building())
+                    {
+                        wo.Destroy();
                         return;
+                    }
 
                     if (PropertyManager.GetBool("override_encounter_spawn_rates").Item)
                     {
@@ -315,7 +323,8 @@ namespace ACE.Server.Entity
                         }
                     }
 
-                    AddWorldObject(wo);
+                    if (!AddWorldObject(wo))
+                        wo.Destroy();
                 }));
             }
         }
@@ -817,6 +826,46 @@ namespace ACE.Server.Entity
 
         private bool AddWorldObjectInternal(WorldObject wo)
         {
+            if (LandblockManager.CurrentlyTickingLandblockGroupsMultiThreaded)
+            {
+                if (CurrentLandblockGroup != null && CurrentLandblockGroup != LandblockManager.CurrentMultiThreadedTickingLandblockGroup.Value)
+                {
+                    // Prevent possible multi-threaded crash
+                    // The following scenario can happen rarely in ACE, all in the same call stack with no ActionQueue usage:
+                    // Moster successfully lands an attack on a player that procs a cloak spell
+                    // The code goes through and does the LaunchSpellProjectiles() which adds the spell projectiles to (presumably) the players landblock
+                    // For some unknown reason, the LandblockGroup/Thread where the monster exists seems to be a different LandblockGroup/Thread where the spells are added to.
+                    // Maybe there's a player death race condition? Maybe it's a teleport race condition? I dunno.
+                    // Because this happens so rarely, and, it only seems to affect cloak projectiles, and, cloak projectiles are pretty benign, we simply don't add the object, and only log it as a warning.
+                    if (wo.WeenieType == WeenieType.ProjectileSpell)
+                    {
+                        log.Warn($"Landblock 0x{Id} entered AddWorldObjectInternal in a cross-thread operation for a ProjectileSpell. This is normally not an issue unless it's happening more than once an hour.");
+                        return false;
+                    }
+
+                    log.Error($"Landblock 0x{Id} entered AddWorldObjectInternal in a cross-thread operation.");
+                    log.Error($"Landblock 0x{Id} CurrentLandblockGroup: {CurrentLandblockGroup}");
+                    log.Error($"LandblockManager.CurrentMultiThreadedTickingLandblockGroup.Value: {LandblockManager.CurrentMultiThreadedTickingLandblockGroup.Value}");
+
+                    log.Error($"wo: 0x{wo.Guid}:{wo.Name} [{wo.WeenieClassId} - {wo.WeenieType}], previous landblock 0x{wo.CurrentLandblock?.Id}");
+
+                    if (wo.WeenieType == WeenieType.ProjectileSpell)
+                    {
+                        if (wo.ProjectileSource != null)
+                            log.Error($"wo.ProjectileSource: 0x{wo.ProjectileSource?.Guid}:{wo.ProjectileSource?.Name}, position: {wo.ProjectileSource?.Location}");
+
+                        if (wo.ProjectileTarget != null)
+                            log.Error($"wo.ProjectileTarget: 0x{wo.ProjectileTarget?.Guid}:{wo.ProjectileTarget?.Name}, position: {wo.ProjectileTarget?.Location}");
+                    }
+
+                    log.Error(System.Environment.StackTrace);
+
+                    log.Error("PLEASE REPORT THIS TO THE ACE DEV TEAM !!!");
+
+                    // This may still crash...
+                }
+            }
+
             wo.CurrentLandblock = this;
 
             if (wo.PhysicsObj == null)
@@ -833,14 +882,18 @@ namespace ACE.Server.Entity
 
                     if (wo.Generator != null)
                     {
-                        log.Debug($"AddWorldObjectInternal: couldn't spawn 0x{wo.Guid}:{wo.Name} [{wo.WeenieClassId} - {wo.WeenieType}] at {wo.Location.ToLOCString()} from generator {wo.Generator.WeenieClassId} - 0x{wo.Generator.Guid}:{wo.Generator.Name}");
+                        if (log.IsDebugEnabled)
+                            log.Debug($"AddWorldObjectInternal: couldn't spawn 0x{wo.Guid}:{wo.Name} [{wo.WeenieClassId} - {wo.WeenieType}] at {wo.Location.ToLOCString()} from generator {wo.Generator.WeenieClassId} - 0x{wo.Generator.Guid}:{wo.Generator.Name}");
                         wo.NotifyOfEvent(RegenerationType.PickUp); // Notify generator the generated object is effectively destroyed, use Pickup to catch both cases.
                     }
 
                     else if (wo.ProjectileTarget == null && wo.WeenieType != WeenieType.CombatPet)
                         log.Warn($"AddWorldObjectInternal: couldn't spawn 0x{wo.Guid}:{wo.Name} [{wo.WeenieClassId} - {wo.WeenieType}]");
                     else if (wo.IsGenerator) // Some generators will fail random spawns if they're circumference spans over water or cliff edges
-                        log.Debug($"AddWorldObjectInternal: couldn't spawn generator 0x{wo.Guid}:{wo.Name} [{wo.WeenieClassId} - {wo.WeenieType}] at {wo.Location.ToLOCString()}");
+                    {
+                        if (log.IsDebugEnabled)
+                            log.Debug($"AddWorldObjectInternal: couldn't spawn generator 0x{wo.Guid}:{wo.Name} [{wo.WeenieClassId} - {wo.WeenieType}] at {wo.Location.ToLOCString()}");
+                    }
                     else if (wo.ProjectileTarget == null && !(wo is SpellProjectile))
                         log.Warn($"AddWorldObjectInternal: couldn't spawn 0x{wo.Guid}:{wo.Name} [{wo.WeenieClassId} - {wo.WeenieType}] at {wo.Location.ToLOCString()}");
 
@@ -858,6 +911,23 @@ namespace ACE.Server.Entity
 
             if (wo is Player player)
                 player.SetFogColor(FogColor);
+
+            if (wo is Corpse && wo.Level.HasValue)
+            {
+                var corpseLimit = PropertyManager.GetLong("corpse_spam_limit").Item;
+                var corpseList = worldObjects.Values.Union(pendingAdditions.Values).Where(w => w is Corpse && w.Level.HasValue && w.VictimId == wo.VictimId).OrderBy(w => w.CreationTimestamp);
+
+                if (corpseList.Count() > corpseLimit)
+                {
+                    var corpse = GetObject(corpseList.First(w => w.TimeToRot > Corpse.EmptyDecayTime).Guid);
+
+                    if (corpse != null)
+                    {
+                        log.Warn($"[CORPSE] Landblock.AddWorldObjectInternal(): {wo.Name} (0x{wo.Guid}) exceeds the per player limit of {corpseLimit} corpses for 0x{Id.Landblock:X4}. Adjusting TimeToRot for oldest {corpse.Name} (0x{corpse.Guid}), CreationTimestamp: {corpse.CreationTimestamp} ({Common.Time.GetDateTimeFromTimestamp(corpse.CreationTimestamp ?? 0).ToLocalTime():yyyy-MM-dd HH:mm:ss}), to Corpse.EmptyDecayTime({Corpse.EmptyDecayTime}).");
+                        corpse.TimeToRot = Corpse.EmptyDecayTime;
+                    }
+                }
+            }
 
             return true;
         }
@@ -879,6 +949,24 @@ namespace ACE.Server.Entity
 
         private void RemoveWorldObjectInternal(ObjectGuid objectId, bool adjacencyMove = false, bool fromPickup = false, bool showError = true)
         {
+            if (LandblockManager.CurrentlyTickingLandblockGroupsMultiThreaded)
+            {
+                if (CurrentLandblockGroup != null && CurrentLandblockGroup != LandblockManager.CurrentMultiThreadedTickingLandblockGroup.Value)
+                {
+                    log.Error($"Landblock 0x{Id} entered RemoveWorldObjectInternal in a cross-thread operation.");
+                    log.Error($"Landblock 0x{Id} CurrentLandblockGroup: {CurrentLandblockGroup}");
+                    log.Error($"LandblockManager.CurrentMultiThreadedTickingLandblockGroup.Value: {LandblockManager.CurrentMultiThreadedTickingLandblockGroup.Value}");
+
+                    log.Error($"objectId: 0x{objectId}");
+
+                    log.Error(System.Environment.StackTrace);
+
+                    log.Error("PLEASE REPORT THIS TO THE ACE DEV TEAM !!!");
+
+                    // This may still crash...
+                }
+            }
+
             if (worldObjects.TryGetValue(objectId, out var wo))
                 pendingRemovals.Add(objectId);
             else if (!pendingAdditions.Remove(objectId, out wo))
@@ -1053,7 +1141,7 @@ namespace ACE.Server.Entity
         {
             var landblockID = Id.Raw | 0xFFFF;
 
-            //log.Debug($"Landblock.Unload({landblockID:X8})");
+            //log.DebugFormat("Landblock.Unload({0:X8})", landblockID);
 
             ProcessPendingWorldObjectAdditionsAndRemovals();
 
@@ -1063,7 +1151,7 @@ namespace ACE.Server.Entity
             foreach (var wo in worldObjects.ToList())
             {
                 if (!wo.Value.BiotaOriginatedFromOrHasBeenSavedToDatabase())
-                    wo.Value.Destroy(false);
+                    wo.Value.Destroy(false, true);
                 else
                     RemoveWorldObjectInternal(wo.Key);
             }
@@ -1074,6 +1162,8 @@ namespace ACE.Server.Entity
 
             // remove physics landblock
             LScape.unload_landblock(landblockID);
+
+            PhysicsLandblock.release_shadow_objs();
         }
 
         public void DestroyAllNonPlayerObjects()
@@ -1106,7 +1196,7 @@ namespace ACE.Server.Entity
                     AddWorldObjectToBiotasSaveCollection(wo, biotas);
             }
 
-            DatabaseManager.Shard.SaveBiotasInParallel(biotas, result => { });
+            DatabaseManager.Shard.SaveBiotasInParallel(biotas, null);
         }
 
         private void AddWorldObjectToBiotasSaveCollection(WorldObject wo, Collection<(Biota biota, ReaderWriterLockSlim rwLock)> biotas)
@@ -1171,6 +1261,15 @@ namespace ACE.Server.Entity
                 // return cached value
                 if (isDungeon != null)
                     return isDungeon.Value;
+
+                // hack for NW island
+                // did a worldwide analysis for adding watercells into the formula,
+                // but they are inconsistently defined for some of the edges of map unfortunately
+                if (Id.LandblockX < 0x08 && Id.LandblockY > 0xF8)
+                {
+                    isDungeon = false;
+                    return isDungeon.Value;
+                }
 
                 // a dungeon landblock is determined by:
                 // - all heights being 0

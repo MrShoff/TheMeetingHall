@@ -8,12 +8,13 @@ using ACE.Entity.Enum;
 using ACE.Entity.Enum.Properties;
 using ACE.Entity.Models;
 using ACE.Server.Managers;
+using ACE.Server.Network.GameMessages.Messages;
 
 namespace ACE.Server.WorldObjects
 {
     partial class Player
     {
-        public static readonly long DefaultPlayerSaveIntervalSecs = 300; // default to 5 minutes
+        public const long DefaultPlayerSaveIntervalSecs = 300; // default to 5 minutes
 
         public DateTime CharacterLastRequestedDatabaseSave { get; protected set; }
 
@@ -22,6 +23,16 @@ namespace ACE.Server.WorldObjects
         /// The primary use for this is to trigger save on add/modify/remove of properties.
         /// </summary>
         public bool CharacterChangesDetected { get; set; }
+
+        /// <summary>
+        /// Set to true when SaveCharacter() returns a failure
+        /// </summary>
+        public bool CharacterSaveFailed { get; set; }
+
+        /// <summary>
+        /// Set to true when SaveBiotaToDatabase() returns a failure
+        /// </summary>
+        public bool BiotaSaveFailed { get; set; }
 
         /// <summary>
         /// The time period between automatic saving of player character changes
@@ -89,7 +100,16 @@ namespace ACE.Server.WorldObjects
 
             var requestedTime = DateTime.UtcNow;
 
-            DatabaseManager.Shard.SaveBiotasInParallel(biotas, result => log.Debug($"{Name} has been saved. It took {(DateTime.UtcNow - requestedTime).TotalMilliseconds:N0} ms to process the request."));
+            DatabaseManager.Shard.SaveBiotasInParallel(biotas, result =>
+            {
+                log.DebugFormat("{0} has been saved. It took {1:N0} ms to process the request.", Name, (DateTime.UtcNow - requestedTime).TotalMilliseconds);
+
+                if (!result)
+                {
+                    // This will trigger a boot on next player tick
+                    BiotaSaveFailed = true;
+                }
+            });
         }
 
         public void SaveCharacterToDatabase()
@@ -97,7 +117,18 @@ namespace ACE.Server.WorldObjects
             CharacterLastRequestedDatabaseSave = DateTime.UtcNow;
             CharacterChangesDetected = false;
 
-            DatabaseManager.Shard.SaveCharacter(Character, CharacterDatabaseLock, null);
+            //DatabaseManager.Shard.SaveCharacter(Character, CharacterDatabaseLock, null);
+            DatabaseManager.Shard.SaveCharacter(Character, CharacterDatabaseLock, result =>
+            {
+                if (!result)
+                {
+                    if (this is Player player)
+                    {
+                        // This will trigger a boot on next player tick
+                        CharacterSaveFailed = true;
+                    }
+                }
+            });
         }
     }
 }

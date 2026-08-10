@@ -7,6 +7,7 @@ using ACE.Entity.Enum.Properties;
 using ACE.Server.Command;
 using ACE.Server.Entity;
 using ACE.Server.Factories;
+using ACE.Server.Factories.Enum;
 using ACE.Server.Managers;
 using ACE.Server.Network;
 using ACE.Server.Network.GameMessages.Messages;
@@ -348,7 +349,7 @@ namespace ACE.Server.Network.Handlers
             WorldObject treasure = null;
             while (treasure == null)
             {
-                treasure = LootGenerationFactory.CreateRandomLootObjects(lootProfile, true);
+                treasure = LootGenerationFactory.CreateRandomLootObjects(lootProfile, TreasureItemCategory.MagicItem);
                 if (treasure != null)
                 {                    
                     tinkerer.ApplyTinks(treasure);

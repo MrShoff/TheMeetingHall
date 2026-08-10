@@ -163,10 +163,12 @@ namespace ACE.Server.WorldObjects
                 if (target == null || target.Location == null)
                     return;
 
-                var matchIndoors = Location.Indoors == target.Location.Indoors;
+                //var matchIndoors = Location.Indoors == target.Location.Indoors;
 
-                var globalLoc = matchIndoors ? Location.ToGlobal() : Location.Pos;
-                var targetLoc = matchIndoors ? target.Location.ToGlobal() : target.Location.Pos;
+                //var globalLoc = matchIndoors ? Location.ToGlobal() : Location.Pos;
+                //var targetLoc = matchIndoors ? target.Location.ToGlobal() : target.Location.Pos;
+                var globalLoc = Location.ToGlobal();
+                var targetLoc = target.Location.ToGlobal();
 
                 var targetDir = GetDirection(globalLoc, targetLoc);
 
@@ -366,8 +368,19 @@ namespace ACE.Server.WorldObjects
                     UpdatePosition_SyncLocation();
                     SendUpdatePosition();
 
-                    if (PhysicsObj.MovementManager.MoveToManager.FailProgressCount < 10)
+                    if (PhysicsObj?.MovementManager?.MoveToManager?.FailProgressCount < 5)
+                    {
                         AddMoveToTick();
+                    }
+                    else
+                    {
+                        if (PhysicsObj?.MovementManager?.MoveToManager != null)
+                        {
+                            PhysicsObj.MovementManager.MoveToManager.CancelMoveTo(WeenieError.ActionCancelled);
+                            PhysicsObj.MovementManager.MoveToManager.FailProgressCount = 0;
+                        }
+                        EnqueueBroadcastMotion(new Motion(CurrentMotionState.Stance, MotionCommand.Ready));
+                    }
 
                     //Console.WriteLine($"{Name}.Position: {Location}");
                 }
@@ -399,6 +412,40 @@ namespace ACE.Server.WorldObjects
                 motion.MoveToParameters.MovementParameters &= ~MovementParams.CanRun;
 
             return motion;
+        }
+
+        /// <summary>
+        /// For monsters only -- blips to a new position within the same landblock
+        /// </summary>
+        public void FakeTeleport(Position _newPosition)
+        {
+            var newPosition = new Position(_newPosition);
+
+            newPosition.PositionZ += 0.005f * (ObjScale ?? 1.0f);
+
+            if (Location.Landblock != newPosition.Landblock)
+            {
+                log.Error($"{Name} tried to teleport from {Location} to a different landblock {newPosition}");
+                return;
+            }
+
+            // force out of hotspots
+            PhysicsObj.report_collision_end(true);
+
+            //HandlePreTeleportVisibility(newPosition);
+
+            // do the physics teleport
+            var setPosition = new Physics.Common.SetPosition();
+            setPosition.Pos = new Physics.Common.Position(newPosition);
+            setPosition.Flags = Physics.Common.SetPositionFlags.SendPositionEvent | Physics.Common.SetPositionFlags.Slide | Physics.Common.SetPositionFlags.Placement | Physics.Common.SetPositionFlags.Teleport;
+
+            PhysicsObj.SetPosition(setPosition);
+
+            // update ace location
+            SyncLocation();
+
+            // broadcast blip to new position
+            SendUpdatePosition(true);
         }
     }
 }

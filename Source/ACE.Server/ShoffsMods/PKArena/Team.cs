@@ -38,9 +38,9 @@ namespace ACE.Server.ShoffsMods.PKArena
         public uint GetMatchingIpCount(Team other)
         {
             uint count = 0;
-            foreach(var ip in from o in other.Participants select o.Player.Session.EndPoint.Address)
+            foreach(var ip in from o in other.Participants select o.Player.Session.EndPointC2S.Address)
             {
-                foreach(var myIp in from p in Participants select p.Player.Session.EndPoint.Address)
+                foreach(var myIp in from p in Participants select p.Player.Session.EndPointC2S.Address)
                 {
                     if (myIp.Equals(ip))
                     {

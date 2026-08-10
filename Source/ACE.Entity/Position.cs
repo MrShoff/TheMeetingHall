@@ -229,15 +229,24 @@ namespace ACE.Entity
                 SetPosition(Pos);
         }
 
-        public Position(uint blockCellID, float newPositionX, float newPositionY, float newPositionZ, float newRotationX, float newRotationY, float newRotationZ, float newRotationW)
+        public Position(uint blockCellID, float newPositionX, float newPositionY, float newPositionZ, float newRotationX, float newRotationY, float newRotationZ, float newRotationW, bool relativePos = false)
         {
             LandblockId = new LandblockId(blockCellID);
 
-            Pos = new Vector3(newPositionX, newPositionY, newPositionZ);
-            Rotation = new Quaternion(newRotationX, newRotationY, newRotationZ, newRotationW);
+            if (!relativePos)
+            {
+                Pos = new Vector3(newPositionX, newPositionY, newPositionZ);
+                Rotation = new Quaternion(newRotationX, newRotationY, newRotationZ, newRotationW);
 
-            if ((blockCellID & 0xFFFF) == 0)
-                SetPosition(Pos);
+                if ((blockCellID & 0xFFFF) == 0)
+                    SetPosition(Pos);
+            }
+            else
+            {
+                // position is marked as relative so pass in raw values and make no further adjustments.
+                PositionX = newPositionX; PositionY = newPositionY; PositionZ = newPositionZ;
+                Rotation = new Quaternion(newRotationX, newRotationY, newRotationZ, newRotationW);
+            }
         }
 
         public Position(uint blockCellID, Vector3 position, Quaternion rotation)
@@ -286,6 +295,42 @@ namespace ACE.Entity
             PositionX = xOffset;
             PositionY = yOffset;
             PositionZ = zOffset;
+            Rotation = Quaternion.Identity;
+        }
+
+        /// <summary>
+        /// Given a Vector2 set of coordinates, create a new position object for use in converting from VLOC to LOC
+        /// </summary>
+        /// <param name="coordinates">A set coordinates provided in a Vector2 object with East-West being the X value and North-South being the Y value</param>
+        public Position(Vector2 coordinates)
+        {
+            // convert from (-101.95, 102.05) to (0, 204)
+            coordinates += Vector2.One * 101.95f;
+
+            // 204 = map clicks across dereth
+            // 2040 = number of cells across dereth
+            // 24 = meters per cell
+            //var globalPos = coordinates / 204 * 2040 * 24;
+            var globalPos = coordinates * 240;   // simplified
+
+            // inlining, this logic is in PositionExtensions.FromGlobal()
+            var blockX = (int)globalPos.X / BlockLength;
+            var blockY = (int)globalPos.Y / BlockLength;
+
+            var originX = globalPos.X % BlockLength;
+            var originY = globalPos.Y % BlockLength;
+
+            var cellX = (int)originX / CellLength;
+            var cellY = (int)originY / CellLength;
+
+            var cell = cellX * CellSide + cellY + 1;
+
+            var objCellID = (uint)(blockX << 24 | blockY << 16 | cell);
+
+            LandblockId = new LandblockId(objCellID);
+
+            Pos = new Vector3(originX, originY, 0);     // must use PositionExtensions.AdjustMapCoords() to get Z
+
             Rotation = Quaternion.Identity;
         }
 
@@ -361,6 +406,8 @@ namespace ACE.Entity
         /// </summary>
         public float SquaredDistanceTo(Position p)
         {
+            if (p == null) return float.MaxValue;
+
             if (p.LandblockId == this.LandblockId)
             {
                 var dx = this.PositionX - p.PositionX;
@@ -384,6 +431,8 @@ namespace ACE.Entity
         /// </summary>
         public float Distance2D(Position p)
         {
+            if (p == null) return float.MaxValue;
+
             // originally this returned the offset instead of distance...
             if (p.LandblockId == this.LandblockId)
             {
@@ -406,6 +455,8 @@ namespace ACE.Entity
         /// </summary>
         public float Distance2DSquared(Position p)
         {
+            if (p == null) return float.MaxValue;
+
             // originally this returned the offset instead of distance...
             if (p.LandblockId == this.LandblockId)
             {
@@ -428,6 +479,8 @@ namespace ACE.Entity
         /// </summary>
         public float DistanceTo(Position p)
         {
+            if (p == null) return float.MaxValue;
+
             // originally this returned the offset instead of distance...
             if (p.LandblockId == this.LandblockId)
             {
@@ -453,6 +506,8 @@ namespace ACE.Entity
         /// </summary>
         public Vector3 GetOffset(Position p)
         {
+            if (p == null) return new Vector3(float.MaxValue, float.MaxValue, float.MaxValue);
+
             var dx = (p.LandblockId.LandblockX - LandblockId.LandblockX) * 192 + p.PositionX - PositionX;
             var dy = (p.LandblockId.LandblockY - LandblockId.LandblockY) * 192 + p.PositionY - PositionY;
             var dz = p.PositionZ - PositionZ;
@@ -470,13 +525,13 @@ namespace ACE.Entity
             return $"0x{LandblockId.Raw:X8} [{PositionX:F6} {PositionY:F6} {PositionZ:F6}] {RotationW:F6} {RotationX:F6} {RotationY:F6} {RotationZ:F6}";
         }
 
-        public static readonly int BlockLength = 192;
-        public static readonly int CellSide = 8;
-        public static readonly int CellLength = 24;
+        public const int BlockLength = 192;
+        public const int CellSide = 8;
+        public const int CellLength = 24;
 
         public bool Equals(Position p)
         {
-            return Cell == p.Cell && Pos.Equals(p.Pos) && Rotation.Equals(p.Rotation);
+            return p != null && Cell == p.Cell && Pos.Equals(p.Pos) && Rotation.Equals(p.Rotation);
         }
     }
 }

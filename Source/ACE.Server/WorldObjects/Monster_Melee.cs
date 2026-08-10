@@ -5,6 +5,7 @@ using System.Linq;
 
 using ACE.Common;
 using ACE.DatLoader;
+using ACE.DatLoader.Entity.AnimationHooks;
 using ACE.Entity;
 using ACE.Entity.Enum;
 using ACE.Entity.Enum.Properties;
@@ -57,28 +58,32 @@ namespace ACE.Server.WorldObjects
             if (CurrentMotionState.Stance == MotionStance.NonCombat)
                 DoAttackStance();
 
+            var weapon = GetEquippedWeapon();
+
             // select combat maneuver
             var motionCommand = GetCombatManeuver();
             if (motionCommand == null)
                 return 0.0f;
 
             DoSwingMotion(AttackTarget, motionCommand.Value, out float animLength, out var attackFrames);
-            PhysicsObj.stick_to_object(AttackTarget.PhysicsObj.ID);
+
+            if (!AiImmobile)
+                PhysicsObj.stick_to_object(AttackTarget.PhysicsObj.ID);
 
             var numStrikes = attackFrames.Count;
 
             var actionChain = new ActionChain();
 
             // handle self-procs
-            TryProcEquippedItems(this, true);
+            TryProcEquippedItems(this, this, true, weapon);
 
             var prevTime = 0.0f;
             bool targetProc = false;
 
             for (var i = 0; i < numStrikes; i++)
             {
-                actionChain.AddDelaySeconds(attackFrames[i] * animLength - prevTime);
-                prevTime = attackFrames[i] * animLength;
+                actionChain.AddDelaySeconds(attackFrames[i].time * animLength - prevTime);
+                prevTime = attackFrames[i].time * animLength;
 
                 actionChain.AddAction(this, () =>
                 {
@@ -91,8 +96,7 @@ namespace ACE.Server.WorldObjects
                         return;
                     }
 
-                    var weapon = GetEquippedWeapon();
-                    var damageEvent = DamageEvent.CalculateDamage(this, target, weapon, motionCommand);
+                    var damageEvent = DamageEvent.CalculateDamage(this, target, weapon, motionCommand, attackFrames[0].attackHook);
 
                     //var damage = CalculateDamage(ref damageType, maneuver, bodyPart, ref critical, ref shieldMod);
 
@@ -108,19 +112,28 @@ namespace ACE.Server.WorldObjects
                                 var shieldSkill = targetPlayer.GetCreatureSkill(Skill.Shield);
                                 Proficiency.OnSuccessUse(targetPlayer, shieldSkill, shieldSkill.Current); // ?
                             }
+
+                            // handle Dirty Fighting
+                            if (GetCreatureSkill(Skill.DirtyFighting).AdvancementClass >= SkillAdvancementClass.Trained)
+                                FightDirty(targetPlayer, damageEvent.Weapon);
                         }
                         else if (combatPet != null || targetPet != null || Faction1Bits != null || target.Faction1Bits != null || PotentialFoe(target))
                         {
                             // combat pet inflicting or receiving damage
                             //Console.WriteLine($"{target.Name} taking {Math.Round(damage)} {damageType} damage from {Name}");
                             target.TakeDamage(this, damageEvent.DamageType, damageEvent.Damage);
+
                             EmitSplatter(target, damageEvent.Damage);
+
+                            // handle Dirty Fighting
+                            if (GetCreatureSkill(Skill.DirtyFighting).AdvancementClass >= SkillAdvancementClass.Trained)
+                                FightDirty(target, damageEvent.Weapon);
                         }
 
                         // handle target procs
                         if (!targetProc)
                         {
-                            TryProcEquippedItems(target, false);
+                            TryProcEquippedItems(this, target, false, weapon);
                             targetProc = true;
                         }
                     }
@@ -154,7 +167,7 @@ namespace ACE.Server.WorldObjects
 
             if (CombatTable == null)
             {
-                log.Error($"{Name} ({Guid}).GetCombatManeuver() - CombatTable is null");
+                log.Error($"{Name} ({Guid}).GetCombatManeuver() - WCID: {WeenieClassId} | CombatTable is null");
                 return null;
             }
 
@@ -163,13 +176,13 @@ namespace ACE.Server.WorldObjects
             var motionTable = DatManager.PortalDat.ReadFromDat<DatLoader.FileTypes.MotionTable>(MotionTableId);
             if (motionTable == null)
             {
-                log.Error($"{Name} ({Guid}).GetCombatManeuver() - motionTable is null");
+                log.Error($"{Name} ({Guid}).GetCombatManeuver() - WCID: {WeenieClassId} | motionTable is null");
                 return null;
             }
 
             if (!CombatTable.Stances.TryGetValue(CurrentMotionState.Stance, out var stanceManeuvers))
             {
-                log.Error($"{Name} ({Guid}).GetCombatManeuver() - couldn't find stance {CurrentMotionState.Stance} in CMT {CombatTableDID:X8}");
+                log.Error($"{Name} ({Guid}).GetCombatManeuver() - WCID: {WeenieClassId} | couldn't find stance {CurrentMotionState.Stance} in CMT {CombatTableDID:X8}");
                 return null;
             }
 
@@ -177,7 +190,7 @@ namespace ACE.Server.WorldObjects
             motionTable.Links.TryGetValue(stanceKey, out var motions);
             if (motions == null)
             {
-                log.Error($"{Name} ({Guid}).GetCombatManeuver() - couldn't find stance {CurrentMotionState.Stance} in MotionTable {MotionTableId:X8}");
+                log.Error($"{Name} ({Guid}).GetCombatManeuver() - WCID: {WeenieClassId} | couldn't find stance {CurrentMotionState.Stance} in MotionTable {MotionTableId:X8}");
                 return null;
             }
 
@@ -192,7 +205,7 @@ namespace ACE.Server.WorldObjects
 
             if (!stanceManeuvers.Table.TryGetValue(AttackHeight.Value, out var attackTypes))
             {
-                log.Error($"{Name} ({Guid}).GetCombatManeuver() - couldn't find attack height {AttackHeight} for stance {CurrentMotionState.Stance} in CMT {CombatTableDID:X8}");
+                log.Error($"{Name} ({Guid}).GetCombatManeuver() - WCID: {WeenieClassId} | couldn't find attack height {AttackHeight} for stance {CurrentMotionState.Stance} in CMT {CombatTableDID:X8}");
                 return null;
             }
 
@@ -228,7 +241,7 @@ namespace ACE.Server.WorldObjects
 
                     if (!attackTypes.Table.TryGetValue(AttackType, out maneuvers) || maneuvers.Count == 0)
                     {
-                        log.Error($"{Name} ({Guid}).GetCombatManeuver() - couldn't find attack type Kick or Punch for attack height {AttackHeight} and stance {CurrentMotionState.Stance} in CMT {CombatTableDID:X8}");
+                        log.Error($"{Name} ({Guid}).GetCombatManeuver() - WCID: {WeenieClassId} | couldn't find attack type Kick or Punch for attack height {AttackHeight} and stance {CurrentMotionState.Stance} in CMT {CombatTableDID:X8}");
                         return null;
                     }
                 }
@@ -238,15 +251,15 @@ namespace ACE.Server.WorldObjects
 
                     if (!attackTypes.Table.TryGetValue(reduced, out maneuvers) || maneuvers.Count == 0)
                     {
-                        log.Error($"{Name} ({Guid}).GetCombatManeuver() - couldn't find attack type {reduced} for attack height {AttackHeight} and stance {CurrentMotionState.Stance} in CMT {CombatTableDID:X8}");
+                        log.Error($"{Name} ({Guid}).GetCombatManeuver() - WCID: {WeenieClassId} | couldn't find attack type {reduced} for attack height {AttackHeight} and stance {CurrentMotionState.Stance} in CMT {CombatTableDID:X8}");
                         return null;
                     }
                     //else
-                        //log.Info($"{Name} ({Guid}).GetCombatManeuver() - successfully reduced attack type {AttackType} to {reduced} for attack height {AttackHeight} and stance {CurrentMotionState.Stance} in CMT {CombatTableDID:X8}");
+                        //log.Info($"{Name} ({Guid}).GetCombatManeuver() - WCID: {WeenieClassId} | successfully reduced attack type {AttackType} to {reduced} for attack height {AttackHeight} and stance {CurrentMotionState.Stance} in CMT {CombatTableDID:X8}");
                 }
                 else
                 {
-                    log.Error($"{Name} ({Guid}).GetCombatManeuver() - couldn't find attack type {AttackType} for attack height {AttackHeight} and stance {CurrentMotionState.Stance} in CMT {CombatTableDID:X8}");
+                    log.Error($"{Name} ({Guid}).GetCombatManeuver() - WCID: {WeenieClassId} | couldn't find attack type {AttackType} for attack height {AttackHeight} and stance {CurrentMotionState.Stance} in CMT {CombatTableDID:X8}");
                     return null;
                 }
             }
@@ -277,7 +290,7 @@ namespace ACE.Server.WorldObjects
 
                     if (motions.ContainsKey((uint)singleStrike))
                     {
-                        //log.Info($"{Name} ({Guid}).GetCombatManeuver() - successfully reduced {motionCommand} to {singleStrike}");
+                        //log.Info($"{Name} ({Guid}).GetCombatManeuver() - WCID: {WeenieClassId} | successfully reduced {motionCommand} to {singleStrike}");
                         return singleStrike;
                     }
                 }
@@ -287,11 +300,11 @@ namespace ACE.Server.WorldObjects
 
                     if (motions.ContainsKey((uint)firstCommand))
                     {
-                        //log.Info($"{Name} ({Guid}).GetCombatManeuver() - successfully reduced {motionCommand} to {firstCommand}");
+                        //log.Info($"{Name} ({Guid}).GetCombatManeuver() - WCID: {WeenieClassId} | successfully reduced {motionCommand} to {firstCommand}");
                         return firstCommand;
                     }
                 }
-                log.Error($"{Name} ({Guid}).GetCombatManeuver() - couldn't find {motionCommand} in MotionTable {MotionTableId:X8}");
+                log.Error($"{Name} ({Guid}).GetCombatManeuver() - WCID: {WeenieClassId} | couldn't find {motionCommand} in MotionTable {MotionTableId:X8}");
                 return null;
             }
 
@@ -315,7 +328,7 @@ namespace ACE.Server.WorldObjects
             }*/
         }
 
-        private static readonly List<float> defaultAttackFrames = new List<float>() { 1.0f / 3.0f };
+        private static readonly List<(float time, AttackHook attackHook)> defaultAttackFrames = new List<(float time, AttackHook attackHook)>() { ( 1.0f / 3.0f, null ) };
 
         private static readonly ConcurrentDictionary<AttackFrameParams, bool> missingAttackFrames = new ConcurrentDictionary<AttackFrameParams, bool>();
 
@@ -324,7 +337,7 @@ namespace ACE.Server.WorldObjects
         /// <summary>
         /// Perform the melee attack swing animation
         /// </summary>
-        public void DoSwingMotion(WorldObject target, MotionCommand motionCommand, out float animLength, out List<float> attackFrames)
+        public void DoSwingMotion(WorldObject target, MotionCommand motionCommand, out float animLength, out List<(float time, AttackHook attackHook)> attackFrames)
         {
             if (!moveBit)
             {
@@ -356,6 +369,7 @@ namespace ACE.Server.WorldObjects
 
             var motion = new Motion(this, motionCommand, animSpeed);
             motion.MotionState.TurnSpeed = 2.25f;
+
             if (!AiImmobile)
                 motion.MotionFlags |= MotionFlags.StickToObject;
 
@@ -408,7 +422,7 @@ namespace ACE.Server.WorldObjects
         /// Returns the percent of damage absorbed by layered armor + clothing
         /// </summary>
         /// <param name="armors">The list of armor/clothing covering the targeted body part</param>
-        public float GetArmorMod(DamageType damageType, List<WorldObject> armors, WorldObject weapon, float armorRendingMod = 1.0f)
+        public float GetArmorMod(Creature defender, DamageType damageType, List<WorldObject> armors, WorldObject weapon, float armorRendingMod = 1.0f)
         {
             var ignoreMagicArmor =  (weapon?.IgnoreMagicArmor ?? false)  || IgnoreMagicArmor;
             var ignoreMagicResist = (weapon?.IgnoreMagicResist ?? false) || IgnoreMagicResist;
@@ -420,7 +434,7 @@ namespace ACE.Server.WorldObjects
 
             // life spells
             // additive: armor/imperil
-            var bodyArmorMod = AttackTarget.EnchantmentManager.GetBodyArmorMod();
+            var bodyArmorMod = defender.EnchantmentManager.GetBodyArmorMod();
             if (ignoreMagicResist)
                 bodyArmorMod = IgnoreMagicResistScaled(bodyArmorMod);
 
@@ -478,7 +492,7 @@ namespace ACE.Server.WorldObjects
         {
             // get base armor/resistance level
             var baseArmor = armor.GetProperty(PropertyInt.ArmorLevel) ?? 0;
-            var armorType = armor.GetProperty(PropertyInt.ArmorType) ?? 0;
+            //var armorType = armor.GetProperty(PropertyInt.ArmorType) ?? 0;
             var resistance = GetResistance(armor, damageType);
 
             /*Console.WriteLine(armor.Name);
@@ -487,8 +501,6 @@ namespace ACE.Server.WorldObjects
             Console.WriteLine("Base RL: " + resistance);*/
 
             // armor level additives
-            var target = AttackTarget as Creature;
-
             var armorMod = armor.EnchantmentManager.GetArmorMod();
 
             if (ignoreMagicArmor)
@@ -575,16 +587,23 @@ namespace ACE.Server.WorldObjects
         /// <summary>
         /// Returns the monster body part performing the next attack
         /// </summary>
-        public KeyValuePair<CombatBodyPart, PropertiesBodyPart> GetAttackPart(MotionCommand motionCommand)
+        public KeyValuePair<CombatBodyPart, PropertiesBodyPart> GetAttackPart(MotionCommand motionCommand, AttackHook attackHook)
         {
             List<KeyValuePair<CombatBodyPart, PropertiesBodyPart>> parts = null;
-            var attackHeight = (uint)AttackHeight;
 
-            if (motionCommand >= MotionCommand.SpecialAttack1 && motionCommand <= MotionCommand.SpecialAttack3)
+            // todo: speed up key lookup?
+            if (attackHook != null)
+            {
+                parts = Biota.PropertiesBodyPart.Where(b => (uint)b.Key == attackHook.AttackCone.PartIndex).ToList();
+            }
+            else if (motionCommand >= MotionCommand.SpecialAttack1 && motionCommand <= MotionCommand.SpecialAttack3)
+            {
                 //parts = Biota.BiotaPropertiesBodyPart.Where(b => b.DVal != 0 && b.BH == 0).ToList();
                 parts = Biota.PropertiesBodyPart.Where(b => b.Key == CombatBodyPart.Breath).ToList(); // always use Breath?
+            }
 
-            if (parts == null)
+            // added parts.Count check for monsters wielding weapons -- should we be getting a body part here?
+            if (parts == null || parts.Count == 0)
                 //parts = Biota.BiotaPropertiesBodyPart.Where(b => b.DVal != 0 && b.BH != 0).ToList();
                 parts = Biota.PropertiesBodyPart.Where(b => b.Value.DVal != 0 && b.Key != CombatBodyPart.Breath).ToList();
 

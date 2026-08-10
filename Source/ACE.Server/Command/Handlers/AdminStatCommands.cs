@@ -2,9 +2,9 @@ using System;
 using System.Diagnostics;
 using System.Linq;
 using System.Text;
-using ACE.Common;
-using log4net;
+using System.Threading;
 
+using ACE.Common;
 using ACE.Database;
 using ACE.DatLoader;
 using ACE.Entity;
@@ -12,10 +12,11 @@ using ACE.Entity.Enum;
 using ACE.Server.Managers;
 using ACE.Server.Network;
 using ACE.Server.Network.Managers;
-using ACE.Server.Physics.Common;
 using ACE.Server.Physics.Entity;
 using ACE.Server.Physics.Managers;
 using ACE.Server.WorldObjects;
+
+using log4net;
 
 namespace ACE.Server.Command.Handlers
 {
@@ -31,7 +32,11 @@ namespace ACE.Server.Command.Handlers
 
             HandleServerPerformance(session, parameters);
 
-            HandleLandblockPerformance(session, parameters);
+            HandleLandblockStats(session, parameters);
+
+            HandleLBGroupStats(session, parameters);
+
+            HandleGCStatus(session, parameters);
 
             DeveloperDatabaseCommands.HandleDatabaseQueueInfo(session, parameters);
         }
@@ -50,6 +55,12 @@ namespace ACE.Server.Command.Handlers
 
             sb.Append($"Host Info: {Environment.OSVersion}, vCPU: {Environment.ProcessorCount}{'\n'}");
 
+            ThreadPool.GetMinThreads(out var minWorkerThreads, out var minCompletionPortThreads);
+            ThreadPool.GetMaxThreads(out var maxWorkerThreads, out var maxCompletionPortThreads);
+            ThreadPool.GetAvailableThreads(out var availWorkerThreads, out var availCompletionPortThreads);
+
+            sb.Append($"ThreadPool Min: {minWorkerThreads} {minCompletionPortThreads}, Max: {maxWorkerThreads} {maxCompletionPortThreads}, Avail: {availWorkerThreads} {availCompletionPortThreads}, Current: {ThreadPool.ThreadCount}{'\n'}");
+
             var runTime = DateTime.Now - proc.StartTime;
             sb.Append($"Server Runtime: {(int)runTime.TotalHours}h {runTime.Minutes}m {runTime.Seconds}s{'\n'}");
 
@@ -58,7 +69,7 @@ namespace ACE.Server.Command.Handlers
             // todo, add actual system memory used/avail
             sb.Append($"{(proc.PrivateMemorySize64 >> 20):N0} MB used{'\n'}");  // sb.Append($"{(proc.PrivateMemorySize64 >> 20)} MB used, xxxx / yyyy MB physical mem free.{'\n'}");
 
-            sb.Append($"{NetworkManager.GetSessionCount():N0} connections, {NetworkManager.GetUniqueSessionEndpointCount():N0} unique connections, {PlayerManager.GetOnlineCount():N0} players online{'\n'}");
+            sb.Append($"{NetworkManager.GetSessionCount():N0} connections, {NetworkManager.GetAuthenticatedSessionCount():N0} authenticated connections, {NetworkManager.GetUniqueSessionEndpointCount():N0} unique connections, {PlayerManager.GetOnlineCount():N0} players online{'\n'}");
             sb.Append($"Total Accounts Created: {DatabaseManager.Authentication.GetAccountCount():N0}, Total Characters Created: {(PlayerManager.GetOfflineCount() + PlayerManager.GetOnlineCount()):N0}{'\n'}");
 
             // 330 active objects, 1931 total objects(16777216 buckets.)
@@ -109,7 +120,8 @@ namespace ACE.Server.Command.Handlers
             sb.Append($"Total Server Objects: {ServerObjectManager.ServerObjects.Count:N0}{'\n'}");
 
             sb.Append($"World DB Cache Counts - Weenies: {DatabaseManager.World.GetWeenieCacheCount():N0}, LandblockInstances: {DatabaseManager.World.GetLandblockInstancesCacheCount():N0}, PointsOfInterest: {DatabaseManager.World.GetPointsOfInterestCacheCount():N0}, Cookbooks: {DatabaseManager.World.GetCookbookCacheCount():N0}, Spells: {DatabaseManager.World.GetSpellCacheCount():N0}, Encounters: {DatabaseManager.World.GetEncounterCacheCount():N0}, Events: {DatabaseManager.World.GetEventsCacheCount():N0}{'\n'}");
-            sb.Append($"Shard DB Counts - Biotas: {DatabaseManager.Shard.BaseDatabase.GetBiotaCount():N0}{'\n'}");
+            //sb.Append($"Shard DB Counts - Biotas: {DatabaseManager.Shard.BaseDatabase.GetBiotaCount():N0}{'\n'}");
+            sb.Append($"Shard DB Counts - Biotas: ~{DatabaseManager.Shard.BaseDatabase.GetEstimatedBiotaCount(ConfigManager.Config.MySql.Shard.Database):N0}{'\n'}");
             if (DatabaseManager.Shard.BaseDatabase is ShardDatabaseWithCaching shardDatabaseWithCaching)
             {
                 var biotaIds = shardDatabaseWithCaching.GetBiotaCacheKeys();
@@ -126,27 +138,45 @@ namespace ACE.Server.Command.Handlers
             CommandHandlerHelper.WriteOutputInfo(session, $"{sb}");
         }
 
-        // serverstatus
+        // serverperformance
         [CommandHandler("serverperformance", AccessLevel.Advocate, CommandHandlerFlag.None, 0, "Displays a summary of server performance statistics")]
         public static void HandleServerPerformance(Session session, params string[] parameters)
         {
-            if (parameters != null && parameters.Length == 1)
+            if (parameters != null && (parameters.Length == 1 || parameters.Length == 2))
             {
-                if (parameters[0].ToLower() == "start")
+                if (parameters.Length >= 1 && parameters[0].ToLower() == "start")
                 {
-                    ServerPerformanceMonitor.Start();
-                    CommandHandlerHelper.WriteOutputInfo(session, "Server Performance Monitor started");
-                    return;
+                    if (parameters.Length >= 2 && parameters[1].ToLower() == "cumulative")
+                    {
+                        ServerPerformanceMonitor.StartCumulative();
+                        CommandHandlerHelper.WriteOutputInfo(session, "Cumulative Server Performance Monitor started");
+                        return;
+                    }
+                    else
+                    {
+                        ServerPerformanceMonitor.Start();
+                        CommandHandlerHelper.WriteOutputInfo(session, "Server Performance Monitor started");
+                        return;
+                    }
                 }
 
-                if (parameters[0].ToLower() == "stop")
+                if (parameters.Length >= 1 && parameters[0].ToLower() == "stop")
                 {
-                    ServerPerformanceMonitor.Stop();
-                    CommandHandlerHelper.WriteOutputInfo(session, "Server Performance Monitor stopped");
-                    return;
+                    if (parameters.Length >= 2 && parameters[1].ToLower() == "cumulative")
+                    {
+                        ServerPerformanceMonitor.StopCumulative();
+                        CommandHandlerHelper.WriteOutputInfo(session, "Cumulative Server Performance Monitor stopped");
+                        return;
+                    }
+                    else
+                    {
+                        ServerPerformanceMonitor.Stop();
+                        CommandHandlerHelper.WriteOutputInfo(session, "Server Performance Monitor stopped");
+                        return;
+                    }
                 }
 
-                if (parameters[0].ToLower() == "reset")
+                if (parameters.Length >= 1 && parameters[0].ToLower() == "reset")
                 {
                     ServerPerformanceMonitor.Reset();
                     CommandHandlerHelper.WriteOutputInfo(session, "Server Performance Monitor reset");
@@ -164,7 +194,8 @@ namespace ACE.Server.Command.Handlers
         }
 
         [CommandHandler("landblockperformance", AccessLevel.Advocate, CommandHandlerFlag.None, 0, "Displays a summary of landblock performance statistics")]
-        public static void HandleLandblockPerformance(Session session, params string[] parameters)
+        [CommandHandler("landblockstats", AccessLevel.Advocate, CommandHandlerFlag.None, 0, "Displays a summary of landblock performance statistics")]
+        public static void HandleLandblockStats(Session session, params string[] parameters)
         {
             var sb = new StringBuilder();
 
@@ -218,6 +249,65 @@ namespace ACE.Server.Command.Handlers
                           $"{entry.Monitor1h.EventHistory.TotalEvents.ToString().PadLeft(7)} {entry.Monitor1h.EventHistory.AverageEventDuration:N4} {entry.Monitor1h.EventHistory.LongestEvent:N3} {entry.Monitor1h.EventHistory.LastEvent:N3} - " +
                           $"0x{entry.Id.Raw:X8} {players.ToString().PadLeft(7)}  {creatures.ToString().PadLeft(9)}{'\n'}");
             }
+
+            CommandHandlerHelper.WriteOutputInfo(session, sb.ToString());
+        }
+
+        // lbgroupstats
+        [CommandHandler("lbgroupstats", AccessLevel.Advocate, CommandHandlerFlag.None, 0, "Displays a summary of landblock group stats")]
+        public static void HandleLBGroupStats(Session session, params string[] parameters)
+        {
+            var sb = new StringBuilder();
+
+            sb.Append($"TickPhysicsEfficiencyTracker: {LandblockManager.TickPhysicsEfficiencyTracker.AverageAmount,3:N0} %, TickMultiThreadedWorkEfficiencyTracker: {LandblockManager.TickMultiThreadedWorkEfficiencyTracker.AverageAmount,3:N0} %{'\n'}");
+
+            var loadedLanblockGroups = LandblockManager.GetLoadedLandblockGroups();
+
+            var sortedByLargest = loadedLanblockGroups.OrderByDescending(r => r.Count).Take(5);
+
+            sb.Append($"Largest Landblock Groups{'\n'}");
+            sb.Append($"Cnt, XMin - XMax, YMin - YMax, TickPhysicsTracker avg   max, TickMultiThreadedWorkTracker avg   max (s){'\n'}");
+
+            foreach (var landblockGroup in sortedByLargest)
+                sb.Append($"{landblockGroup.Count,3},   {landblockGroup.XMin,2:X2} - {landblockGroup.XMax,2:X2},     {landblockGroup.YMin,2:X2} - {landblockGroup.YMax,2:X2}  ,                  {landblockGroup.TickPhysicsTracker.AverageAmount,5:N3} {landblockGroup.TickPhysicsTracker.LargestAmount,5:N3},                            {landblockGroup.TickMultiThreadedWorkTracker.AverageAmount,5:N3} {landblockGroup.TickMultiThreadedWorkTracker.LargestAmount,5:N3}{'\n'}");
+
+            var sortedByTopTickPhysicsTracker = loadedLanblockGroups.OrderByDescending(r => r.TickPhysicsTracker.AverageAmount).Take(5);
+
+            sb.Append($"Top TickPhysicsTracker Landblock Groups{'\n'}");
+
+            foreach (var landblockGroup in sortedByTopTickPhysicsTracker)
+                sb.Append($"{landblockGroup.Count,3},   {landblockGroup.XMin,2:X2} - {landblockGroup.XMax,2:X2},     {landblockGroup.YMin,2:X2} - {landblockGroup.YMax,2:X2}  ,                  {landblockGroup.TickPhysicsTracker.AverageAmount,5:N3} {landblockGroup.TickPhysicsTracker.LargestAmount,5:N3},                            {landblockGroup.TickMultiThreadedWorkTracker.AverageAmount,5:N3} {landblockGroup.TickMultiThreadedWorkTracker.LargestAmount,5:N3}{'\n'}");
+
+            var sortedByTopTickMultiThreadedWorkTracker = loadedLanblockGroups.OrderByDescending(r => r.TickMultiThreadedWorkTracker.AverageAmount).Take(5);
+
+            sb.Append($"Top TickMultiThreadedWorkTracker Landblock Groups{'\n'}");
+
+            foreach (var landblockGroup in sortedByTopTickMultiThreadedWorkTracker)
+                sb.Append($"{landblockGroup.Count,3},   {landblockGroup.XMin,2:X2} - {landblockGroup.XMax,2:X2},     {landblockGroup.YMin,2:X2} - {landblockGroup.YMax,2:X2}  ,                  {landblockGroup.TickPhysicsTracker.AverageAmount,5:N3} {landblockGroup.TickPhysicsTracker.LargestAmount,5:N3},                            {landblockGroup.TickMultiThreadedWorkTracker.AverageAmount,5:N3} {landblockGroup.TickMultiThreadedWorkTracker.LargestAmount,5:N3}{'\n'}");
+
+            CommandHandlerHelper.WriteOutputInfo(session, sb.ToString());
+        }
+
+        // gcstatus
+        [CommandHandler("gcstatus", AccessLevel.Advocate, CommandHandlerFlag.None, 0, "Displays a summary of server GC Information")]
+        public static void HandleGCStatus(Session session, params string[] parameters)
+        {
+            var sb = new StringBuilder();
+
+            sb.Append($"GC.GetTotalMemory: {(GC.GetTotalMemory(false) >> 20):N0} MB, GC.GetTotalAllocatedBytes: {(GC.GetTotalAllocatedBytes() >> 20):N0} MB{'\n'}");
+
+            // https://docs.microsoft.com/en-us/dotnet/api/system.gcmemoryinfo?view=net-5.0
+            var gcmi = GC.GetGCMemoryInfo();
+
+            sb.Append($"GCMI Index: {gcmi.Index:N0}, Generation: {gcmi.Generation}, Compacted: {gcmi.Compacted}, Concurrent: {gcmi.Concurrent}, PauseTimePercentage: {gcmi.PauseTimePercentage}{'\n'}");
+            for (int i = 0 ; i < gcmi.GenerationInfo.Length ; i++)
+                sb.Append($"GCMI.GenerationInfo[{i}] FragmentationBeforeBytes: {(gcmi.GenerationInfo[i].FragmentationBeforeBytes >> 20):N0} MB, FragmentationAfterBytes: {(gcmi.GenerationInfo[i].FragmentationAfterBytes >> 20):N0} MB, SizeBeforeBytes: {(gcmi.GenerationInfo[i].SizeBeforeBytes >> 20):N0} MB, SizeAfterBytes: {(gcmi.GenerationInfo[i].SizeAfterBytes >> 20):N0} MB{'\n'}");
+            for (int i = 0; i < gcmi.PauseDurations.Length; i++)
+                sb.Append($"GCMI.PauseDurations[{i}]: {gcmi.PauseDurations[i].TotalMilliseconds:N0} ms{'\n'}");
+            sb.Append($"GCMI PinnedObjectsCount: {gcmi.PinnedObjectsCount}, FinalizationPendingCount: {gcmi.FinalizationPendingCount:N0}{'\n'}");
+
+            sb.Append($"GCMI FragmentedBytes: {(gcmi.FragmentedBytes >> 20):N0} MB, PromotedBytes: {(gcmi.PromotedBytes >> 20):N0} MB, HeapSizeBytes: {(gcmi.HeapSizeBytes >> 20):N0} MB, TotalCommittedBytes: {(gcmi.TotalCommittedBytes >> 20):N0} MB{'\n'}");
+            sb.Append($"GCMI MemoryLoadBytes: {(gcmi.MemoryLoadBytes >> 20):N0} MB, HighMemoryLoadThresholdBytes: {(gcmi.HighMemoryLoadThresholdBytes >> 20):N0} MB, TotalAvailableMemoryBytes: {(gcmi.TotalAvailableMemoryBytes >> 20):N0} MB{'\n'}");
 
             CommandHandlerHelper.WriteOutputInfo(session, sb.ToString());
         }

@@ -2,6 +2,7 @@ using System.Numerics;
 
 using log4net;
 
+using ACE.Common;
 using ACE.Entity;
 using ACE.Entity.Enum;
 using ACE.Entity.Enum.Properties;
@@ -39,6 +40,8 @@ namespace ACE.Server.WorldObjects
         protected void SetEphemeralValues()
         {
             ObjectDescriptionFlags |= ObjectDescriptionFlag.Portal;
+
+            ActivationResponse |= ActivationResponse.Use;
 
             UpdatePortalDestination(Destination);
         }
@@ -112,6 +115,12 @@ namespace ACE.Server.WorldObjects
                 ActOnUse(activator);
         }
 
+        /// <summary>
+        /// If a player tries to use 2 portals in under this amount of time,
+        /// they receive an error message
+        /// </summary>
+        private const float minTimeSinceLastPortal = 3.5f;
+
         public override ActivationResult CheckUseRequirements(WorldObject activator)
         {
             if (!(activator is Player player))
@@ -124,6 +133,29 @@ namespace ACE.Server.WorldObjects
             {
                 player.Session.Network.EnqueueSend(new GameMessageSystemChat($"Portal destination for portal ID {WeenieClassId} not yet implemented!", ChatMessageType.System));
                 return new ActivationResult(false);
+            }
+
+            if (player.LastPortalTeleportTimestamp != null)
+            {
+                var currentTime = Time.GetUnixTime();
+
+                var timeSinceLastPortal = currentTime - player.LastPortalTeleportTimestamp.Value;
+
+                if (timeSinceLastPortal < minTimeSinceLastPortal)
+                {
+                    // prevent message spam
+                    if (player.LastPortalTeleportTimestampError != null)
+                    {
+                        var timeSinceLastPortalError = currentTime - player.LastPortalTeleportTimestampError.Value;
+
+                        if (timeSinceLastPortalError < minTimeSinceLastPortal)
+                            return new ActivationResult(false);
+                    }
+
+                    player.LastPortalTeleportTimestampError = currentTime;
+
+                    return new ActivationResult(new GameEventWeenieError(player.Session, WeenieError.YouHaveBeenTeleportedTooRecently));
+                }
             }
 
             if (player.PKTimerActive && !PortalIgnoresPkAttackTimer)
@@ -139,7 +171,7 @@ namespace ACE.Server.WorldObjects
                     return new ActivationResult(new GameEventWeenieError(player.Session, WeenieError.YouAreNotPowerfulEnoughToUsePortal));
                 }
 
-                if (player.Level > MaxLevel && MaxLevel != 0)
+                if (player.Level > MaxLevel && MaxLevel != 0 && PropertyManager.GetBool("use_portal_max_level_requirement").Item)
                 {
                     // You are too powerful to interact with that portal!
                     return new ActivationResult(new GameEventWeenieError(player.Session, WeenieError.YouAreTooPowerfulToUsePortal));
@@ -182,13 +214,13 @@ namespace ACE.Server.WorldObjects
                     return new ActivationResult(new GameEventWeenieError(player.Session, WeenieError.NonPKsMayNotUsePortal));
                 }
 
-                if (PortalRestrictions.HasFlag(PortalBitmask.OnlyOlthoiPCs) && !player.IsOlthoiPlayer())
+                if (PortalRestrictions.HasFlag(PortalBitmask.OnlyOlthoiPCs) && !player.IsOlthoiPlayer)
                 {
                     // Only Olthoi may pass through this portal!
                     return new ActivationResult(new GameEventWeenieError(player.Session, WeenieError.OnlyOlthoiMayUsePortal));
                 }
 
-                if (PortalRestrictions.HasFlag(PortalBitmask.NoOlthoiPCs) && player.IsOlthoiPlayer())
+                if ((PortalRestrictions.HasFlag(PortalBitmask.NoOlthoiPCs) || IsGateway) && player.IsOlthoiPlayer)
                 {
                     // Olthoi may not pass through this portal!
                     return new ActivationResult(new GameEventWeenieError(player.Session, WeenieError.OlthoiMayNotUsePortal));
@@ -286,7 +318,8 @@ namespace ACE.Server.WorldObjects
                 EmoteManager.OnPortal(player);
 
                 player.SendWeenieError(WeenieError.ITeleported);
-            }));
+
+            }), true);
         }
     }
 }

@@ -69,11 +69,6 @@
                     "stacksize": "1"
                 },
                 {
-                    "weenieId": "31000",
-                    "name": "Blackmoor's Favor",
-                    "stacksize": "1"
-                },
-                {
                     "weenieId": "20646",
                     "name": "Ust",
                     "stacksize": "1"
@@ -143,6 +138,16 @@
                             "weenieId": "43018",
                             "name": "Letter From Home",
                             "stacksize": "1"
+                        },
+                        {
+                            "weenieId": "42979",
+                            "name": "Core Plating Integrator",
+                            "stacksize": "1"
+                        },
+                        {
+                            "weenieId": "43022",
+                            "name": "Core Plating Deintegrator",
+                            "stacksize": "1"
                         }
                     ]
                 },
@@ -154,79 +159,6 @@
                             "weenieId": "43019",
                             "name": "Letter From Home",
                             "stacksize": "1"
-                        }
-                    ]
-                },
-                {
-                    "id": "12",
-                    "name": "Olthoi Soldier",
-                    "gear": [
-                        {
-                            "weenieId": "43634",
-                            "name": "Acidic Infusion",
-                            "stacksize": "10"
-                        },
-                        {
-                            "weenieId": "43701",
-                            "name": "Olthoi Fibrous Healing Tissue",
-                            "stacksize": "1"
-                        }
-                    ]
-                },
-                {
-                    "id": "13",
-                    "name": "Olthoi Spitter",
-                    "gear": [
-                        {
-                            "weenieId": "43634",
-                            "name": "Acidic Infusion",
-                            "stacksize": "10"
-                        },
-                        {
-                            "weenieId": "43635",
-                            "name": "Saliva Invigorator",
-                            "stacksize": "100"
-                        },
-                        {
-                            "weenieId": "43701",
-                            "name": "Olthoi Fibrous Healing Tissue",
-                            "stacksize": "1"
-                        },
-                        {
-                            "weenieId": "43489",
-                            "name": "Salivatory Goo",
-                            "stacksize": "1"
-                        },
-                        {
-                            "weenieId": "15271",
-                            "name": "Foci of Strife",
-                            "stacksize": "1"
-                        }
-                    ],
-                    "spells": [
-                        {
-                            "spellId": "5440",
-                            "name": "Acid Spit 1"
-                        },
-                        {
-                            "spellId": "5442",
-                            "name": "Acid Spit Arc 1"
-                        },
-                        {
-                            "spellId": "5444",
-                            "name": "Acid Spit Blast 1"
-                        },
-                        {
-                            "spellId": "5439",
-                            "name": "Acid Spit Streak 1"
-                        },
-                        {
-                            "spellId": "5446",
-                            "name": "Acid Spit Volley 1"
-                        },
-                        {
-                            "spellId": "5522",
-                            "name": "Acid Spit Vulnerability 1"
                         }
                     ]
                 }
@@ -744,6 +676,7 @@
                     "name": "Tumerok",
                     "gear": [
                         {
+                            "weenieId": "12745",
                             "name": "Training Trident",
                             "stacksize": "1"
                         }
@@ -815,6 +748,7 @@
                     "name": "Gharu'ndim",
                     "gear": [
                         {
+                            "weenieId":  "45550",
                             "name": "Training Staff",
                             "stacksize": "1"
                         }
@@ -858,6 +792,7 @@
                     "name": "Gear",
                     "gear": [
                         {
+                            "weenieID": "45542",
                             "name": "Training Club",
                             "stacksize": "1"
                         }
@@ -868,6 +803,7 @@
                     "name": "Tumerok",
                     "gear": [
                         {
+                            "weenieID": "45546",
                             "name": "Training Spear",
                             "stacksize": "1"
                         }
@@ -950,7 +886,7 @@
                     "name": "Sho",
                     "gear": [
                         {
-                            "weenieId": "45537",
+                            "weenieId": "45557",
                             "name": "Training Handwraps",
                             "stacksize": "1"
                         }
@@ -972,7 +908,7 @@
                     "name": "Umbrean",
                     "gear": [
                         {
-                            "weenieId": "45537",
+                            "weenieId": "45557",
                             "name": "Training Handwraps",
                             "stacksize": "1"
                         }
@@ -1027,7 +963,7 @@
                     "name": "Penumbraen",
                     "gear": [
                         {
-                            "weenieId": "45537",
+                            "weenieId": "45557",
                             "name": "Training Handwraps",
                             "stacksize": "1"
                         }
@@ -1060,7 +996,7 @@
                             "stacksize": "1"
                         },
                         {
-                            "weenieId": "300",
+                            "weenieId": "31717",
                             "name": "Arrow",
                             "stacksize": "250"
                         }
@@ -1076,7 +1012,7 @@
                             "stacksize": "1"
                         },
                         {
-                            "weenieId": "12464",
+                            "weenieId": "31715",
                             "name": "Atlatl Dart",
                             "stacksize": "250"
                         }
@@ -1092,7 +1028,7 @@
                             "stacksize": "1"
                         },
                         {
-                            "weenieId": "300",
+                            "weenieId": "31717",
                             "name": "Arrow",
                             "stacksize": "250"
                         }
@@ -1108,7 +1044,7 @@
                             "stacksize": "1"
                         },
                         {
-                            "weenieId": "305",
+                            "weenieId": "31716",
                             "name": "Quarrel",
                             "stacksize": "250"
                         }
@@ -1124,7 +1060,7 @@
                             "stacksize": "1"
                         },
                         {
-                            "weenieId": "305",
+                            "weenieId": "31716",
                             "name": "Quarrel",
                             "stacksize": "250"
                         }
@@ -1140,7 +1076,7 @@
                             "stacksize": "1"
                         },
                         {
-                            "weenieId": "305",
+                            "weenieId": "31716",
                             "name": "Quarrel",
                             "stacksize": "250"
                         }
@@ -1156,7 +1092,7 @@
                             "stacksize": "1"
                         },
                         {
-                            "weenieId": "12464",
+                            "weenieId": "31715",
                             "name": "Atlatl Dart",
                             "stacksize": "250"
                         }
@@ -1172,7 +1108,7 @@
                             "stacksize": "1"
                         },
                         {
-                            "weenieId": "12464",
+                            "weenieId": "31715",
                             "name": "Atlatl Dart",
                             "stacksize": "250"
                         }
@@ -1188,7 +1124,7 @@
                             "stacksize": "1"
                         },
                         {
-                            "weenieId": "300",
+                            "weenieId": "31717",
                             "name": "Arrow",
                             "stacksize": "250"
                         }
@@ -1204,7 +1140,7 @@
                             "stacksize": "1"
                         },
                         {
-                            "weenieId": "305",
+                            "weenieId": "31716",
                             "name": "Quarrel",
                             "stacksize": "250"
                         }
@@ -1220,7 +1156,7 @@
                             "stacksize": "1"
                         },
                         {
-                            "weenieId": "12464",
+                            "weenieId": "31715",
                             "name": "Atlatl Dart",
                             "stacksize": "250"
                         }

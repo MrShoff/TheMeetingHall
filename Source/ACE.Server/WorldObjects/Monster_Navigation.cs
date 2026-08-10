@@ -18,21 +18,21 @@ namespace ACE.Server.WorldObjects
         /// <summary>
         /// Return to home if target distance exceeds this range
         /// </summary>
-        public static readonly float MaxChaseRange = 192.0f;
-        public static readonly float MaxChaseRangeSq = MaxChaseRange * MaxChaseRange;
+        public const float MaxChaseRange = 96.0f;
+        public const float MaxChaseRangeSq = MaxChaseRange * MaxChaseRange;
 
         /// <summary>
         /// Determines if a monster is within melee range of target
         /// </summary>
-        //public static readonly float MaxMeleeRange = 1.5f;
-        public static readonly float MaxMeleeRange = 0.75f;
-        //public static readonly float MaxMeleeRange = 1.5f + 0.6f + 0.1f;    // max melee range + distance from + buffer
+        //public const float MaxMeleeRange = 1.5f;
+        public const float MaxMeleeRange = 0.75f;
+        //public const float MaxMeleeRange = 1.5f + 0.6f + 0.1f;    // max melee range + distance from + buffer
 
         /// <summary>
         /// The maximum range for a monster missile attack
         /// </summary>
-        //public static readonly float MaxMissileRange = 80.0f;
-        //public static readonly float MaxMissileRange = 40.0f;   // for testing
+        //public const float MaxMissileRange = 80.0f;
+        //public const float MaxMissileRange = 40.0f;   // for testing
 
         /// <summary>
         /// The distance per second from running animation
@@ -254,9 +254,9 @@ namespace ACE.Server.WorldObjects
 
         public void UpdatePosition(bool netsend = true)
         {
-            stopwatch.Restart();
+            //stopwatch.Restart();
             PhysicsObj.update_object();
-            ServerPerformanceMonitor.AddToCumulativeEvent(ServerPerformanceMonitor.CumulativeEventHistoryType.Monster_Navigation_UpdatePosition_PUO, stopwatch.Elapsed.TotalSeconds);
+            //ServerPerformanceMonitor.AddToCumulativeEvent(ServerPerformanceMonitor.CumulativeEventHistoryType.Monster_Navigation_UpdatePosition_PUO, stopwatch.Elapsed.TotalSeconds);
             UpdatePosition_SyncLocation();
 
             if (netsend)
@@ -281,6 +281,7 @@ namespace ACE.Server.WorldObjects
             // was the position successfully moved to?
             // use the physics position as the source-of-truth?
             var newPos = PhysicsObj.Position;
+
             if (Location.LandblockId.Raw != newPos.ObjCellID)
             {
                 var prevBlockCell = Location.LandblockId.Raw;
@@ -304,7 +305,12 @@ namespace ACE.Server.WorldObjects
                     //Console.WriteLine("Moving " + Name + " to " + Location.LandblockId.Raw.ToString("X8"));
             }
 
-            Location.Pos = newPos.Frame.Origin;
+            // skip ObjCellID check when updating from physics
+            // TODO: update to newer version of ACE.Entity.Position
+            Location.PositionX = newPos.Frame.Origin.X;
+            Location.PositionY = newPos.Frame.Origin.Y;
+            Location.PositionZ = newPos.Frame.Origin.Z;
+
             Location.Rotation = newPos.Frame.Orientation;
 
             if (DebugMove)
@@ -378,7 +384,7 @@ namespace ACE.Server.WorldObjects
         /// </summary>
         public bool IsFacing(WorldObject target)
         {
-            if (target == null) return false;
+            if (target?.Location == null) return false;
 
             var angle = GetAngle(target);
             var dist = Math.Max(0, GetDistanceToTarget());
@@ -445,10 +451,12 @@ namespace ACE.Server.WorldObjects
                 return;
 
             var homePosition = GetPosition(PositionType.Home);
-            var matchIndoors = Location.Indoors == homePosition.Indoors;
+            //var matchIndoors = Location.Indoors == homePosition.Indoors;
 
-            var globalPos = matchIndoors ? Location.ToGlobal() : Location.Pos;
-            var globalHomePos = matchIndoors ? homePosition.ToGlobal() : homePosition.Pos;
+            //var globalPos = matchIndoors ? Location.ToGlobal() : Location.Pos;
+            //var globalHomePos = matchIndoors ? homePosition.ToGlobal() : homePosition.Pos;
+            var globalPos = Location.ToGlobal();
+            var globalHomePos = homePosition.ToGlobal();
 
             var homeDistSq = Vector3.DistanceSquared(globalHomePos, globalPos);
 

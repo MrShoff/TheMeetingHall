@@ -37,8 +37,8 @@ namespace ACE.Server.WorldObjects
                 var animSpeed = GetAnimSpeed();
                 //Console.WriteLine($"AnimSpeed: {animSpeed}");
 
-                animLength = EnqueueMotion(actionChain, MotionCommand.Reload, animSpeed);   // start pulling out next arrow
-                EnqueueMotion(actionChain, MotionCommand.Ready);    // finish reloading
+                animLength = EnqueueMotionPersist(actionChain, MotionCommand.Reload, animSpeed);   // start pulling out next arrow
+                EnqueueMotionPersist(actionChain, MotionCommand.Ready);    // finish reloading
             }
 
             // ensure ammo visibility for players
@@ -95,6 +95,7 @@ namespace ACE.Server.WorldObjects
             proj.ProjectileTarget = target;
 
             proj.ProjectileLauncher = weapon;
+            proj.ProjectileAmmo = ammo;
 
             proj.Location = new Position(Location);
             proj.Location.Pos = origin;
@@ -106,15 +107,21 @@ namespace ACE.Server.WorldObjects
 
             if (!success || proj.PhysicsObj == null)
             {
-                if (!proj.HitMsg && player != null)
-                    player.Session.Network.EnqueueSend(new GameMessageSystemChat("Your missile attack hit the environment.", ChatMessageType.Broadcast));
+                if (!proj.HitMsg)
+                {
+                    if (player != null)
+                        player.Session.Network.EnqueueSend(new GameMessageSystemChat("Your missile attack hit the environment.", ChatMessageType.Broadcast));
+                }
 
+                proj.Destroy();
                 return null;
             }
 
             if (!IsProjectileVisible(proj))
             {
                 proj.OnCollideEnvironment();
+
+                proj.Destroy();
                 return null;
             }
 
@@ -135,7 +142,7 @@ namespace ACE.Server.WorldObjects
             return proj;
         }
 
-        public static readonly float ProjSpawnHeight = 0.8454f;
+        public const float ProjSpawnHeight = 0.8454f;
 
         /// <summary>
         /// Returns the origin to spawn the projectile in the attacker local space
@@ -198,7 +205,7 @@ namespace ACE.Server.WorldObjects
         }
 
         // lowest value found in data / for starter bows
-        public static readonly float DefaultProjectileSpeed = 20.0f;
+        public const float DefaultProjectileSpeed = 20.0f;
 
         public float GetProjectileSpeed()
         {
@@ -315,18 +322,28 @@ namespace ACE.Server.WorldObjects
                 else
                 {
                     // use movement quartic solver
-                    var numSolutions = Trajectory.solve_ballistic_arc(origin, speed, dest, targetVelocity, gravity, out s0, out _, out time);
+                    if (!PropertyManager.GetBool("trajectory_alt_solver").Item)
+                    {
+                        var numSolutions = Trajectory.solve_ballistic_arc(origin, speed, dest, targetVelocity, gravity, out s0, out _, out time);
 
-                    if (numSolutions > 0)
-                        return s0;
+                        if (numSolutions > 0)
+                            return s0;
+                    }
+                    else
+                        return Trajectory2.CalculateTrajectory(origin, dest, targetVelocity, speed, useGravity);
                 }
             }
 
             // use stationary solver
-            Trajectory.solve_ballistic_arc(origin, speed, dest, gravity, out s0, out _, out t0, out _);
+            if (!PropertyManager.GetBool("trajectory_alt_solver").Item)
+            {
+                Trajectory.solve_ballistic_arc(origin, speed, dest, gravity, out s0, out _, out t0, out _);
 
-            time = t0;
-            return s0;
+                time = t0;
+                return s0;
+            }
+            else
+                return Trajectory2.CalculateTrajectory(origin, dest, Vector3.Zero, speed, useGravity);
         }
 
         /// <summary>
@@ -347,11 +364,24 @@ namespace ACE.Server.WorldObjects
             var rotation = obj.Location.Rotation;
             obj.PhysicsObj.Position.Frame.Origin = pos;
             obj.PhysicsObj.Position.Frame.Orientation = rotation;
-            obj.Placement = ACE.Entity.Enum.Placement.MissileFlight;
+
+            if (obj.HasMissileFlightPlacement)
+                obj.Placement = ACE.Entity.Enum.Placement.MissileFlight;
+            else
+                obj.Placement = null;
+
             obj.CurrentMotionState = null;
 
             obj.PhysicsObj.Velocity = velocity;
             obj.PhysicsObj.ProjectileTarget = target.PhysicsObj;
+
+            // Projectiles with RotationSpeed get omega values and "align path" turned off which
+            // creates the nice swirling animation
+            if ((obj.RotationSpeed ?? 0) != 0)
+            {
+                obj.AlignPath = false;
+                obj.PhysicsObj.Omega = new Vector3((float)(Math.PI * 2 * obj.RotationSpeed), 0, 0);
+            }
 
             obj.PhysicsObj.set_active(true);
         }
@@ -369,9 +399,9 @@ namespace ACE.Server.WorldObjects
             }
         }
 
-        public static readonly float MetersToYards = 1.094f;    // 1.09361
-        public static readonly float MissileRangeCap = 85.0f / MetersToYards;   // 85 yards = ~77.697 meters w/ ac formula
-        public static readonly float DefaultMaxVelocity = 20.0f;    // ?
+        public const float MetersToYards = 1.094f;    // 1.09361
+        public const float MissileRangeCap = 85.0f / MetersToYards;   // 85 yards = ~77.697 meters w/ ac formula
+        public const float DefaultMaxVelocity = 20.0f;    // ?
 
         public float GetMaxMissileRange()
         {

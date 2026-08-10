@@ -47,10 +47,11 @@ namespace ACE.Server.Network.Managers
         {
             if (connectionListener.ListenerEndpoint.Port == ConfigManager.Config.Server.Network.Port + 1)
             {
-                ServerPerformanceMonitor.RestartEvent(ServerPerformanceMonitor.MonitorType.ProcessPacket_1);
+                //ServerPerformanceMonitor.RestartEvent(ServerPerformanceMonitor.MonitorType.ProcessPacket_1);
                 if (packet.Header.Flags.HasFlag(PacketHeaderFlags.ConnectResponse))
                 {
-                    packetLog.Debug($"{packet}, {endPoint}");
+                    if (packetLog.IsDebugEnabled)
+                        packetLog.DebugFormat("{0}, {1}", packet, endPoint);
                     PacketInboundConnectResponse connectResponse = new PacketInboundConnectResponse(packet);
 
                     // This should be set on the second packet to the server from the client.
@@ -65,7 +66,7 @@ namespace ACE.Server.Network.Managers
                                  k != null &&
                                  k.State == SessionState.AuthConnectResponse &&
                                  k.Network.ConnectionData.ConnectionCookie == connectResponse.Check &&
-                                 k.EndPoint.Address.Equals(endPoint.Address)
+                                 k.EndPointC2S.Address.Equals(endPoint.Address)
                              select k).FirstOrDefault();
                     }
                     finally
@@ -74,6 +75,7 @@ namespace ACE.Server.Network.Managers
                     }
                     if (session != null)
                     {
+                        session.SetS2CEndpoint(endPoint);
                         session.State = SessionState.AuthConnected;
                         session.Network.sendResync = true;
                         AuthenticationHandler.HandleConnectResponse(session);
@@ -88,15 +90,16 @@ namespace ACE.Server.Network.Managers
                 {
                     log.ErrorFormat("Packet from {0} rejected. Packet sent to listener 1 and is not a ConnectResponse or CICMDCommand", endPoint);
                 }
-                ServerPerformanceMonitor.RegisterEventEnd(ServerPerformanceMonitor.MonitorType.ProcessPacket_1);
+                //ServerPerformanceMonitor.RegisterEventEnd(ServerPerformanceMonitor.MonitorType.ProcessPacket_1);
             }
             else // ConfigManager.Config.Server.Network.Port + 0
             {
-                ServerPerformanceMonitor.RestartEvent(ServerPerformanceMonitor.MonitorType.ProcessPacket_0);
+                //ServerPerformanceMonitor.RestartEvent(ServerPerformanceMonitor.MonitorType.ProcessPacket_0);
                 if (packet.Header.HasFlag(PacketHeaderFlags.LoginRequest))
                 {
-                    packetLog.Debug($"{packet}, {endPoint}");
-                    if (GetSessionCount() >= ConfigManager.Config.Server.Network.MaximumAllowedSessions)
+                    if (packetLog.IsDebugEnabled)
+                        packetLog.DebugFormat("{0}, {1}", packet, endPoint);
+                    if (GetAuthenticatedSessionCount() >= ConfigManager.Config.Server.Network.MaximumAllowedSessions)
                     {
                         log.InfoFormat("Login Request from {0} rejected. Server full.", endPoint);
                         SendLoginRequestReject(connectionListener, endPoint, CharacterError.LogonServerFull);
@@ -172,10 +175,10 @@ namespace ACE.Server.Network.Managers
                     var session = sessionMap[packet.Header.Id];
                     if (session != null)
                     {
-                        if (session.EndPoint.Equals(endPoint))
+                        if (session.EndPointC2S.Equals(endPoint))
                             session.ProcessPacket(packet);
                         else
-                            log.WarnFormat("Session for Id {0} has IP {1} but packet has IP {2}", packet.Header.Id, session.EndPoint, endPoint);
+                            log.DebugFormat("Session for Id {0} has IP {1} but packet has IP {2}", packet.Header.Id, session.EndPointC2S, endPoint);
                     }
                     else
                     {
@@ -186,7 +189,7 @@ namespace ACE.Server.Network.Managers
                 {
                     log.DebugFormat("Unsolicited Packet from {0} with Id {1}", endPoint, packet.Header.Id);
                 }
-                ServerPerformanceMonitor.RegisterEventEnd(ServerPerformanceMonitor.MonitorType.ProcessPacket_0);
+                //ServerPerformanceMonitor.RegisterEventEnd(ServerPerformanceMonitor.MonitorType.ProcessPacket_0);
             }
         }
 
@@ -228,6 +231,19 @@ namespace ACE.Server.Network.Managers
             }
         }
 
+        public static int GetAuthenticatedSessionCount()
+        {
+            sessionLock.EnterReadLock();
+            try
+            {
+                return sessionMap.Count(s => s != null && s.AccountId != 0);
+            }
+            finally
+            {
+                sessionLock.ExitReadLock();
+            }
+        }
+
         public static int GetUniqueSessionEndpointCount()
         {
             sessionLock.EnterReadLock();
@@ -237,7 +253,6 @@ namespace ACE.Server.Network.Managers
 
                 foreach (var s in sessionMap)
                 {
-                    if (s != null)
                     {
                         // don't count admin accounts
                         var account = DatabaseManager.Authentication.GetAccountByName(s.Account);
@@ -248,7 +263,7 @@ namespace ACE.Server.Network.Managers
                         var playersOnAccount = PlayerManager.GetAllPlayers().Where(x => x.Account.AccountId == account.AccountId);
                         var numCharsBetween10And275 = playersOnAccount.Select(x => x.Level).Where(x => x >= 10 && x <= 275);
                         if (numCharsBetween10And275.Any())
-                            ipAddresses.Add(s.EndPoint.Address);
+                            ipAddresses.Add(s.EndPointC2S.Address);
                     }
                 }
 
@@ -269,7 +284,7 @@ namespace ACE.Server.Network.Managers
 
                 foreach (var s in sessionMap)
                 {
-                    if (s != null && s.EndPoint.Address.Equals(address))
+                    if (s != null && s.EndPointC2S.Address.Equals(address))
                         result++;
                 }
 
@@ -288,7 +303,7 @@ namespace ACE.Server.Network.Managers
             sessionLock.EnterUpgradeableReadLock();
             try
             {
-                session = sessionMap.SingleOrDefault(s => s != null && endPoint.Equals(s.EndPoint));
+                session = sessionMap.SingleOrDefault(s => s != null && endPoint.Equals(s.EndPointC2S));
                 if (session == null)
                 {
                     sessionLock.EnterWriteLock();
@@ -353,7 +368,7 @@ namespace ACE.Server.Network.Managers
             sessionLock.EnterWriteLock();
             try
             {
-                log.DebugFormat("Removing session for {0} with id {1}", session.EndPoint, session.Network.ClientId);
+                log.DebugFormat("Removing session for {0} with id {1}", session.EndPointC2S, session.Network.ClientId);
                 if (sessionMap[session.Network.ClientId] == session)
                     sessionMap[session.Network.ClientId] = null;
             }

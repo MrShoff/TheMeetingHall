@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 
@@ -8,8 +9,8 @@ using ACE.DatLoader;
 using ACE.DatLoader.FileTypes;
 using ACE.Entity.Enum;
 using ACE.Entity.Enum.Properties;
-using ACE.Server.Entity;
 using ACE.Entity.Models;
+using ACE.Server.Entity;
 using ACE.Server.Managers;
 using ACE.Server.Network.GameEvent.Events;
 using ACE.Server.Network.GameMessages.Messages;
@@ -104,7 +105,7 @@ namespace ACE.Server.WorldObjects
                 GetCombatTable();
 
             // if caster, roll for spellcasting chance
-            if (IsCaster && TryRollSpell())
+            if (HasKnownSpells && TryRollSpell())
                 return CombatType.Magic;
 
             if (IsRanged)
@@ -165,6 +166,7 @@ namespace ACE.Server.WorldObjects
         {
             // FIXME
             var it = 0;
+            bool? isVisible = null;
 
             while (CurrentAttack == CombatType.Magic)
             {
@@ -172,17 +174,27 @@ namespace ACE.Server.WorldObjects
                 //CurrentSpell = GetRandomSpell();
                 if (CurrentSpell.IsProjectile)
                 {
+                    if (isVisible == null)
+                        isVisible = IsDirectVisible(AttackTarget);
+
                     // ensure direct los
-                    if (!IsDirectVisible(AttackTarget))
+                    if (!isVisible.Value)
                     {
                         // reroll attack type
                         CurrentAttack = GetNextAttackType();
                         it++;
 
                         // max iterations to melee?
-                        if (it >= 30)
+                        if (it >= 10)
+                        {
+                            //log.Warn($"{Name} ({Guid}) reached max iterations");
                             CurrentAttack = CombatType.Melee;
 
+                            var powerupTime = (float)(PowerupTime ?? 1.0f);
+                            var failDelay = ThreadSafeRandom.Next(0.0f, powerupTime);
+
+                            NextMoveTime = Timers.RunningTime + failDelay;
+                        }
                         continue;
                     }
                 }
@@ -405,7 +417,7 @@ namespace ACE.Server.WorldObjects
             set { if (value == 0) RemoveProperty(PropertyInt.AiAllowedCombatStyle); else SetProperty(PropertyInt.AiAllowedCombatStyle, (int)value); }
         }
 
-        private static readonly Dictionary<uint, BodyPartTable> BPTableCache = new Dictionary<uint, BodyPartTable>();
+        private static readonly ConcurrentDictionary<uint, BodyPartTable> BPTableCache = new ConcurrentDictionary<uint, BodyPartTable>();
 
         public static BodyPartTable GetBodyParts(uint wcid)
         {
@@ -413,8 +425,27 @@ namespace ACE.Server.WorldObjects
             {
                 var weenie = DatabaseManager.World.GetCachedWeenie(wcid);
 
-                bpTable = new BodyPartTable(weenie);
-                BPTableCache[wcid] = bpTable;
+                /* bpTable = new BodyPartTable(weenie);
+                BPTableCache[wcid] = bpTable; */
+
+                if (weenie == null)
+                {
+                    // should never happen?
+                    log.Error($"Monster_Combat.GetBodyParts({wcid}) - unknown wcid");
+                    return null;
+                }
+
+                try
+                {
+                    bpTable = new BodyPartTable(weenie);
+                }
+                catch (Exception e)
+                {
+                    log.Error(e);
+                    log.Error($"Monster_Combat.GetBodyParts({wcid}) - bad data for wcid {wcid}");
+                    return null;
+                }
+		        BPTableCache[wcid] = bpTable;
             }
             return bpTable;
         }

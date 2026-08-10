@@ -62,7 +62,7 @@ namespace ACE.Server.Factories.Tables.Wcids
             RadiantBloodWcids,
         };
 
-        public static WeenieClassName Roll(TreasureDeath profile, TreasureItemType_Orig treasureItemType)
+        public static WeenieClassName Roll(TreasureDeath profile, TreasureItemType treasureItemType)
         {
             // get society from extended heritage chances
             var society = GetSociety(profile);
@@ -85,6 +85,22 @@ namespace ACE.Server.Factories.Tables.Wcids
             var heritage = HeritageChance.Roll(profile.UnknownChances);
 
             return heritage.ToSociety();
+        }
+
+        private static readonly HashSet<WeenieClassName> _combined = new HashSet<WeenieClassName>();
+
+        static SocietyArmorWcids()
+        {
+            foreach (var table in societyArmorTables)
+            {
+                foreach (var wcid in table)
+                    _combined.Add(wcid);
+            }
+        }
+
+        public static bool Contains(WeenieClassName wcid)
+        {
+            return _combined.Contains(wcid);
         }
     }
 }

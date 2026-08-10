@@ -1,15 +1,32 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 
-namespace ACE.Database.Models.Shard
-{
-    public partial class CharacterPropertiesQuestRegistry
-    {
-        public uint CharacterId { get; set; }
-        public string QuestName { get; set; }
-        public uint LastTimeCompleted { get; set; }
-        public int NumTimesCompleted { get; set; }
+namespace ACE.Database.Models.Shard;
 
-        public virtual Character Character { get; set; }
-    }
+/// <summary>
+/// QuestBook Properties of Weenies
+/// </summary>
+public partial class CharacterPropertiesQuestRegistry
+{
+    /// <summary>
+    /// Id of the character this property belongs to
+    /// </summary>
+    public uint CharacterId { get; set; }
+
+    /// <summary>
+    /// Unique Name of Quest
+    /// </summary>
+    public string QuestName { get; set; }
+
+    /// <summary>
+    /// Timestamp of last successful completion
+    /// </summary>
+    public uint LastTimeCompleted { get; set; }
+
+    /// <summary>
+    /// Number of successful completions
+    /// </summary>
+    public int NumTimesCompleted { get; set; }
+
+    public virtual Character Character { get; set; }
 }

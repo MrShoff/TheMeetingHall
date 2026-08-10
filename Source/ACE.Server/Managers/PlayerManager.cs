@@ -32,6 +32,12 @@ namespace ACE.Server.Managers
         private static readonly Dictionary<uint, Player> onlinePlayers = new Dictionary<uint, Player>();
         private static readonly Dictionary<uint, OfflinePlayer> offlinePlayers = new Dictionary<uint, OfflinePlayer>();
 
+        // indexed by player name
+        private static readonly Dictionary<string, IPlayer> playerNames = new Dictionary<string, IPlayer>(StringComparer.OrdinalIgnoreCase);
+
+        // indexed by account id
+        private static readonly Dictionary<uint, Dictionary<uint, IPlayer>> playerAccounts = new Dictionary<uint, Dictionary<uint, IPlayer>>();
+
         /// <summary>
         /// OfflinePlayers will be saved to the database every 1 hour
         /// </summary>
@@ -52,15 +58,51 @@ namespace ACE.Server.Managers
 
                 lock (offlinePlayers)
                     offlinePlayers[offlinePlayer.Guid.Full] = offlinePlayer;
+
+                lock (playerNames)
+                    playerNames[offlinePlayer.Name] = offlinePlayer;
+
+                lock (playerAccounts)
+                {
+                    if (offlinePlayer.Account != null)
+                    {
+                        if (!playerAccounts.TryGetValue(offlinePlayer.Account.AccountId, out var playerAccountsDict))
+                        {
+                            playerAccountsDict = new Dictionary<uint, IPlayer>();
+                            playerAccounts[offlinePlayer.Account.AccountId] = playerAccountsDict;
+                        }
+                        playerAccountsDict[offlinePlayer.Guid.Full] = offlinePlayer;
+                    }
+                    else
+                        log.Error($"PlayerManager.Initialize: couldn't find account for player {offlinePlayer.Name} ({offlinePlayer.Guid})");
+                }
             });
         }
 
         private static readonly LinkedList<Player> playersPendingLogoff = new LinkedList<Player>();
 
+        private static readonly LinkedList<Player> playersPendingFinalLogoff = new LinkedList<Player>();
+
         public static void AddPlayerToLogoffQueue(Player player)
         {
             if (!playersPendingLogoff.Contains(player))
                 playersPendingLogoff.AddLast(player);
+        }
+
+        private static readonly TimeSpan playerFinalLogoutDuration = TimeSpan.FromMinutes(15);
+
+        public static void AddPlayerToFinalLogoffQueue(Player player)
+        {
+            if (!playersPendingFinalLogoff.Contains(player))
+            {
+                player.LogOffFinalizedTime = Time.GetFutureUnixTime(playerFinalLogoutDuration.TotalSeconds);
+                playersPendingFinalLogoff.AddLast(player);
+            }
+        }
+
+        public static void RemovePlayerFromFinalLogoffQueue(Player player)
+        {
+             playersPendingFinalLogoff.Remove(player);
         }
 
         public static void Tick()
@@ -80,6 +122,23 @@ namespace ACE.Server.Managers
                     playersPendingLogoff.RemoveFirst();
                     first.LogOut_Inner();
                     first.Session.logOffRequestTime = DateTime.UtcNow;
+                }
+                else
+                {
+                    break;
+                }
+            }
+
+            while (playersPendingFinalLogoff.Count > 0)
+            {
+                var first = playersPendingFinalLogoff.First.Value;
+
+                if (currentUnixTime >= first.LogOffFinalizedTime)
+                {
+                    playersPendingFinalLogoff.RemoveFirst();
+                    first.ForcedLogOffRequested = true;
+                    first.Session?.Terminate(SessionTerminationReason.AutoForcedLogOff, new GameMessageBootAccount(" because the character was forced to log off by system"));
+                    first.ForceLogoff();
                 }
                 else
                 {
@@ -114,7 +173,7 @@ namespace ACE.Server.Managers
                 playersLock.ExitReadLock();
             }
 
-            DatabaseManager.Shard.SaveBiotasInParallel(biotas, result => { });
+            DatabaseManager.Shard.SaveBiotasInParallel(biotas, null, true);
         }
         
 
@@ -129,6 +188,15 @@ namespace ACE.Server.Managers
             {
                 var offlinePlayer = new OfflinePlayer(player.Biota);
                 offlinePlayers[offlinePlayer.Guid.Full] = offlinePlayer;
+
+                playerNames[offlinePlayer.Name] = offlinePlayer;
+
+                if (!playerAccounts.TryGetValue(offlinePlayer.Account.AccountId, out var playerAccountsDict))
+                {
+                    playerAccountsDict = new Dictionary<uint, IPlayer>();
+                    playerAccounts[offlinePlayer.Account.AccountId] = playerAccountsDict;
+                }
+                playerAccountsDict[offlinePlayer.Guid.Full] = offlinePlayer;
             }
             finally
             {
@@ -197,6 +265,20 @@ namespace ACE.Server.Managers
             allPlayers.AddRange(onlinePlayers);
 
             return allPlayers;
+        }
+
+        public static Dictionary<uint, IPlayer> GetAccountPlayers(uint accountId)
+        {
+            playersLock.EnterReadLock();
+            try
+            {
+                playerAccounts.TryGetValue(accountId, out var accountPlayers);
+                return accountPlayers;
+            }
+            finally
+            {
+                playersLock.ExitReadLock();
+            }
         }
 
         public static int GetOfflineCount()
@@ -333,6 +415,10 @@ namespace ACE.Server.Managers
 
                 if (!onlinePlayers.TryAdd(player.Guid.Full, player))
                     return false;
+
+                playerNames[offlinePlayer.Name] = player;
+
+                playerAccounts[offlinePlayer.Account.AccountId][offlinePlayer.Guid.Full] = player;
             }
             finally
             {
@@ -341,7 +427,7 @@ namespace ACE.Server.Managers
 
             AllegianceManager.LoadPlayer(player);
 
-            player.SendFriendStatusUpdates();
+            player.SendFriendStatusUpdates(false, !player.GetAppearOffline());
 
             return true;
         }
@@ -365,13 +451,17 @@ namespace ACE.Server.Managers
 
                 if (!offlinePlayers.TryAdd(offlinePlayer.Guid.Full, offlinePlayer))
                     return false;
+
+                playerNames[offlinePlayer.Name] = offlinePlayer;
+
+                playerAccounts[offlinePlayer.Account.AccountId][offlinePlayer.Guid.Full] = offlinePlayer;
             }
             finally
             {
                 playersLock.ExitWriteLock();
             }
 
-            player.SendFriendStatusUpdates(false);
+            player.SendFriendStatusUpdates(!player.GetAppearOffline(), false);
             player.HandleAllegianceOnLogout();
 
             return true;
@@ -398,6 +488,10 @@ namespace ACE.Server.Managers
             {
                 if (!offlinePlayers.Remove(guid, out var offlinePlayer))
                     return false; // This should never happen
+
+                playerNames.Remove(offlinePlayer.Name);
+
+                playerAccounts[offlinePlayer.Account.AccountId].Remove(offlinePlayer.Guid.Full);
             }
             finally
             {
@@ -424,27 +518,16 @@ namespace ACE.Server.Managers
             playersLock.EnterReadLock();
             try
             {
-                var onlinePlayer = onlinePlayers.Values.FirstOrDefault(p => p.Name.TrimStart('+').Equals(name.TrimStart('+'), StringComparison.OrdinalIgnoreCase));
+                playerNames.TryGetValue(name.TrimStart('+'), out var player);
 
-                if (onlinePlayer != null)
-                {
-                    isOnline = true;
-                    return onlinePlayer;
-                }
+                isOnline = player != null && player is Player;
 
-                isOnline = false;
-
-                var offlinePlayer = offlinePlayers.Values.FirstOrDefault(p => p.Name.TrimStart('+').Equals(name.TrimStart('+'), StringComparison.OrdinalIgnoreCase) && !p.IsPendingDeletion);
-
-                if (offlinePlayer != null)
-                    return offlinePlayer;
+                return player;
             }
             finally
             {
                 playersLock.ExitReadLock();
             }
-
-            return null;
         }
 
         /// <summary>
@@ -510,6 +593,7 @@ namespace ACE.Server.Managers
             playersLock.EnterReadLock();
             try
             {
+                // this kind of sucks, possibly investigate?
                 var onlinePlayersResult = onlinePlayers.Values.Where(p => p.MonarchId == monarch.Full);
                 var offlinePlayersResult = offlinePlayers.Values.Where(p => p.MonarchId == monarch.Full);
 
@@ -566,8 +650,10 @@ namespace ACE.Server.Managers
             else
                 BroadcastToChannelFromConsole(Channel.Audit, message);
 
-            if (PropertyManager.GetBool("log_audit", true).Item)
-                log.Info($"[AUDIT] {(issuer != null ? $"{issuer.Name} says on the Audit channel: " : "")}{message}");
+            //if (PropertyManager.GetBool("log_audit", true).Item)
+                //log.Info($"[AUDIT] {(issuer != null ? $"{issuer.Name} says on the Audit channel: " : "")}{message}");
+
+            //LogBroadcastChat(Channel.Audit, issuer, message);
         }
 
         public static void BroadcastToChannel(Channel channel, Player sender, string message, bool ignoreSquelch = false, bool ignoreActive = false)
@@ -579,13 +665,109 @@ namespace ACE.Server.Managers
                     if (!player.SquelchManager.Squelches.Contains(sender) || ignoreSquelch)
                         player.Session.Network.EnqueueSend(new GameEventChannelBroadcast(player.Session, channel, sender.Guid == player.Guid ? "" : sender.Name, message));
                 }
+
+                LogBroadcastChat(channel, sender, message);
             }
+        }
+
+        public static void LogBroadcastChat(Channel channel, WorldObject sender, string message)
+        {
+            switch (channel)
+            {
+                case Channel.Abuse:
+                    if (!PropertyManager.GetBool("chat_log_abuse").Item)
+                        return;
+                    break;
+                case Channel.Admin:
+                    if (!PropertyManager.GetBool("chat_log_admin").Item)
+                        return;
+                    break;
+                case Channel.AllBroadcast: // using this to sub in for a WorldBroadcast channel which isn't technically a channel
+                    if (!PropertyManager.GetBool("chat_log_global").Item)
+                        return;
+                    break;
+                case Channel.Audit:
+                    if (!PropertyManager.GetBool("chat_log_audit").Item)
+                        return;
+                    break;
+                case Channel.Advocate1:
+                case Channel.Advocate2:
+                case Channel.Advocate3:
+                    if (!PropertyManager.GetBool("chat_log_advocate").Item)
+                        return;
+                    break;
+                case Channel.Debug:
+                    if (!PropertyManager.GetBool("chat_log_debug").Item)
+                        return;
+                    break;
+                case Channel.Fellow:
+                case Channel.FellowBroadcast:
+                    if (!PropertyManager.GetBool("chat_log_fellow").Item)
+                        return;
+                    break;
+                case Channel.Help:
+                    if (!PropertyManager.GetBool("chat_log_help").Item)
+                        return;
+                    break;
+                case Channel.Olthoi:
+                    if (!PropertyManager.GetBool("chat_log_olthoi").Item)
+                        return;
+                    break;
+                case Channel.QA1:
+                case Channel.QA2:
+                    if (!PropertyManager.GetBool("chat_log_qa").Item)
+                        return;
+                    break;
+                case Channel.Sentinel:
+                    if (!PropertyManager.GetBool("chat_log_sentinel").Item)
+                        return;
+                    break;
+
+                case Channel.SocietyCelHanBroadcast:
+                case Channel.SocietyEldWebBroadcast:
+                case Channel.SocietyRadBloBroadcast:
+                    if (!PropertyManager.GetBool("chat_log_society").Item)
+                        return;
+                    break;
+
+                case Channel.AllegianceBroadcast:
+                case Channel.CoVassals:
+                case Channel.Monarch:
+                case Channel.Patron:
+                case Channel.Vassals:
+                    if (!PropertyManager.GetBool("chat_log_allegiance").Item)
+                        return;
+                    break;
+
+                case Channel.AlArqas:
+                case Channel.Holtburg:
+                case Channel.Lytelthorpe:
+                case Channel.Nanto:
+                case Channel.Rithwic:
+                case Channel.Samsur:
+                case Channel.Shoushi:
+                case Channel.Yanshi:
+                case Channel.Yaraq:
+                    if (!PropertyManager.GetBool("chat_log_townchans").Item)
+                        return;
+                    break;
+
+                default:
+                    return;
+            }
+
+            if (channel != Channel.AllBroadcast)
+                log.Info($"[CHAT][{channel.ToString().ToUpper()}] {(sender != null ? sender.Name : "[SYSTEM]")} says on the {channel} channel, \"{message}\"");
+            else
+                log.Info($"[CHAT][GLOBAL] {(sender != null ? sender.Name : "[SYSTEM]")} issued a world broadcast, \"{message}\"");
         }
 
         public static void BroadcastToChannelFromConsole(Channel channel, string message)
         {
             foreach (var player in GetAllOnline().Where(p => (p.ChannelsActive ?? 0).HasFlag(channel)))
                 player.Session.Network.EnqueueSend(new GameEventChannelBroadcast(player.Session, channel, "CONSOLE", message));
+
+            LogBroadcastChat(channel, null, message);
         }
 
         public static void BroadcastToChannelFromEmote(Channel channel, string message)
@@ -652,7 +834,9 @@ namespace ACE.Server.Managers
                             player.SetProperty(PropertyFloat.MinimumTimeSincePk, 0);
                         }
 
-                        BroadcastToAll(new GameMessageSystemChat($"This world has been changed to a Player Killer world. All players will become Player Killers in {PropertyManager.GetDouble("pk_respite_timer").Item} seconds.", ChatMessageType.WorldBroadcast));
+                        var msg = $"This world has been changed to a Player Killer world. All players will become Player Killers in {PropertyManager.GetDouble("pk_respite_timer").Item} seconds.";
+                        BroadcastToAll(new GameMessageSystemChat(msg, ChatMessageType.WorldBroadcast));
+                        LogBroadcastChat(Channel.AllBroadcast, null, msg);
                     }
                     else
                     {
@@ -665,7 +849,9 @@ namespace ACE.Server.Managers
                             player.SetProperty(PropertyFloat.MinimumTimeSincePk, 0);
                         }
 
-                        BroadcastToAll(new GameMessageSystemChat("This world has been changed to a Non Player Killer world. All players are now Non-Player Killers.", ChatMessageType.WorldBroadcast));
+                        var msg = "This world has been changed to a Non Player Killer world. All players are now Non-Player Killers.";
+                        BroadcastToAll(new GameMessageSystemChat(msg, ChatMessageType.WorldBroadcast));
+                        LogBroadcastChat(Channel.AllBroadcast, null, msg);
                     }
                     break;
                 case "pkl_server":
@@ -682,7 +868,9 @@ namespace ACE.Server.Managers
                             player.SetProperty(PropertyFloat.MinimumTimeSincePk, 0);
                         }
 
-                        BroadcastToAll(new GameMessageSystemChat($"This world has been changed to a Player Killer Lite world. All players will become Player Killer Lites in {PropertyManager.GetDouble("pk_respite_timer").Item} seconds.", ChatMessageType.WorldBroadcast));
+                        var msg = $"This world has been changed to a Player Killer Lite world. All players will become Player Killer Lites in {PropertyManager.GetDouble("pk_respite_timer").Item} seconds.";
+                        BroadcastToAll(new GameMessageSystemChat(msg, ChatMessageType.WorldBroadcast));
+                        LogBroadcastChat(Channel.AllBroadcast, null, msg);
                     }
                     else
                     {
@@ -695,10 +883,32 @@ namespace ACE.Server.Managers
                             player.SetProperty(PropertyFloat.MinimumTimeSincePk, 0);
                         }
 
-                        BroadcastToAll(new GameMessageSystemChat("This world has been changed to a Non Player Killer world. All players are now Non-Player Killers.", ChatMessageType.WorldBroadcast));
+                        var msg = "This world has been changed to a Non Player Killer world. All players are now Non-Player Killers.";
+                        BroadcastToAll(new GameMessageSystemChat(msg, ChatMessageType.WorldBroadcast));
+                        LogBroadcastChat(Channel.AllBroadcast, null, msg);
                     }
                     break;
             }
+        }
+
+        public static bool IsAccountAtMaxCharacterSlots(string accountName)
+        {
+            var slotsAvailable = (int)PropertyManager.GetLong("max_chars_per_account").Item;
+            var onlinePlayersTotal = 0;
+            var offlinePlayersTotal = 0;
+
+            playersLock.EnterReadLock();
+            try
+            {
+                onlinePlayersTotal = onlinePlayers.Count(a => a.Value.Account.AccountName.Equals(accountName, StringComparison.OrdinalIgnoreCase));
+                offlinePlayersTotal = offlinePlayers.Count(a => a.Value.Account.AccountName.Equals(accountName, StringComparison.OrdinalIgnoreCase));
+            }
+            finally
+            {
+                playersLock.ExitReadLock();
+            }
+
+            return (onlinePlayersTotal + offlinePlayersTotal) >= slotsAvailable;
         }
     }
 }

@@ -28,7 +28,7 @@ namespace ACE.Server.Command.Handlers
             "")]
         public static void HandlePop(Session session, params string[] parameters)
         {
-            session.Network.EnqueueSend(new GameMessageSystemChat($"Current world population: {PlayerManager.GetOnlineCount().ToString()}\n", ChatMessageType.Broadcast));            
+            CommandHandlerHelper.WriteOutputInfo(session, $"Current world population: {PlayerManager.GetOnlineCount():N0}", ChatMessageType.Broadcast);
         }
 
         // quest info (uses GDLe formatting to match plugin expectations)
@@ -41,20 +41,22 @@ namespace ACE.Server.Command.Handlers
                 return;
             }
 
-            if (session.Player.QuestManager.Quests.Count == 0)
+            var quests = session.Player.QuestManager.GetQuests();
+
+            if (quests.Count == 0)
             {
                 session.Network.EnqueueSend(new GameMessageSystemChat("Quest list is empty.", ChatMessageType.Broadcast));
                 return;
             }
 
-            foreach (var playerQuest in session.Player.QuestManager.Quests)
+            foreach (var playerQuest in quests)
             {
                 var text = "";
                 var questName = QuestManager.GetQuestName(playerQuest.QuestName);
                 var quest = DatabaseManager.World.GetCachedQuest(questName);
                 if (quest == null)
                 {
-                    Console.WriteLine($"Couldn't find quest {playerQuest.QuestName}");
+                    //Console.WriteLine($"Couldn't find quest {playerQuest.QuestName}");
                     continue;
                 }
 
@@ -108,7 +110,8 @@ namespace ACE.Server.Command.Handlers
                 var loc = HouseManager.GetCoords(keepHouse.SlumLord.Location);
 
                 var msg = $"Are you sure you want to keep the {houseType} at\n{loc}?";
-                session.Player.ConfirmationManager.EnqueueSend(new Confirmation_Custom(session.Player.Guid, () => HandleHouseSelect(session, true, parameters)), msg);
+                if (!session.Player.ConfirmationManager.EnqueueSend(new Confirmation_Custom(session.Player.Guid, () => HandleHouseSelect(session, true, parameters)), msg))
+                    session.Player.SendWeenieError(WeenieError.ConfirmationInProgress);
                 return;
             }
 
@@ -348,10 +351,15 @@ namespace ACE.Server.Command.Handlers
                 return;
             }
 
+            var creaturesOnly = parameters.Length > 0 && parameters[0].Contains("creature", StringComparison.OrdinalIgnoreCase);
+
             var knownObjs = session.Player.GetKnownObjects();
 
             foreach (var knownObj in knownObjs)
             {
+                if (creaturesOnly && !(knownObj is Creature))
+                    continue;
+
                 session.Player.RemoveTrackedObject(knownObj, false);
                 session.Player.TrackObject(knownObj);
             }

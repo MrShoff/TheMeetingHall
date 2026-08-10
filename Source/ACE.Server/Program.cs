@@ -2,6 +2,7 @@ using System;
 using System.Globalization;
 using System.IO;
 using System.Reflection;
+using System.Runtime;
 using System.Runtime.InteropServices;
 using System.Threading;
 
@@ -9,10 +10,12 @@ using log4net;
 using log4net.Config;
 
 using ACE.Common;
+using ACE.Common.Extensions;
 using ACE.Database;
 using ACE.DatLoader;
 using ACE.Server.Command;
 using ACE.Server.Managers;
+using ACE.Server.Mods;
 using ACE.Server.Network.Managers;
 
 namespace ACE.Server
@@ -24,7 +27,7 @@ namespace ACE.Server
         /// https://docs.microsoft.com/en-us/windows/desktop/api/timeapi/nf-timeapi-timebeginperiod
         /// Important note: This function affects a global Windows setting. Windows uses the lowest value (that is, highest resolution) requested by any process.
         /// </summary>
-        [DllImport("winmm.dll", EntryPoint="timeBeginPeriod")]
+        [DllImport("winmm.dll", EntryPoint = "timeBeginPeriod")]
         public static extern uint MM_BeginPeriod(uint uMilliseconds);
 
         /// <summary>
@@ -34,7 +37,7 @@ namespace ACE.Server
         [DllImport("winmm.dll", EntryPoint = "timeEndPeriod")]
         public static extern uint MM_EndPeriod(uint uMilliseconds);
 
-        private static readonly ILog log = LogManager.GetLogger(System.Reflection.MethodBase.GetCurrentMethod().DeclaringType);
+        private static readonly ILog log = LogManager.GetLogger(MethodBase.GetCurrentMethod().DeclaringType);
 
         public static readonly bool IsRunningInContainer = Convert.ToBoolean(Environment.GetEnvironmentVariable("DOTNET_RUNNING_IN_CONTAINER"));
 
@@ -84,7 +87,7 @@ namespace ACE.Server
                         File.Copy(log4netConfigExample, log4netConfig);
                     }
                     else
-                    {                        
+                    {
                         if (!File.Exists(log4netConfigContainer))
                         {
                             Console.WriteLine("log4net Configuration file is missing, ACEmulator is running in a container,  cloning from docker file.");
@@ -101,8 +104,8 @@ namespace ACE.Server
                 }
             }
 
-            var logRepository = LogManager.GetRepository(System.Reflection.Assembly.GetEntryAssembly());
-            XmlConfigurator.Configure(logRepository, log4netFileInfo);
+            var logRepository = LogManager.GetRepository(Assembly.GetEntryAssembly());
+            XmlConfigurator.ConfigureAndWatch(logRepository, log4netFileInfo);
 
             if (Environment.ProcessorCount < 2)
                 log.Warn("Only one vCPU was detected. ACE may run with limited performance. You should increase your vCPU count for anything more than a single player server.");
@@ -125,7 +128,7 @@ namespace ACE.Server
 
             if (IsRunningInContainer)
                 log.Info("ACEmulator is running in a container...");
-            
+
             var configFile = Path.Combine(exeLocation, "Config.js");
             var configConfigContainer = Path.Combine(containerConfigDirectory, "Config.js");
 
@@ -151,6 +154,9 @@ namespace ACE.Server
             log.Info("Initializing ConfigManager...");
             ConfigManager.Initialize();
 
+            log.Info("Initializing ModManager...");
+            ModManager.Initialize();
+
             if (ConfigManager.Config.Server.WorldName != "ACEmulator")
             {
                 consoleTitle = $"{ConfigManager.Config.Server.WorldName} | {consoleTitle}";
@@ -159,7 +165,7 @@ namespace ACE.Server
 
             if (ConfigManager.Config.Offline.PurgeDeletedCharacters)
             {
-                log.Info($"Purging deleted characters, and their possessions, older than {ConfigManager.Config.Offline.PurgeDeletedCharactersDays} days ({DateTime.Now.AddDays(-ConfigManager.Config.Offline.PurgeDeletedCharactersDays)})...");
+                log.Info($"Purging deleted characters, and their possessions, older than {ConfigManager.Config.Offline.PurgeDeletedCharactersDays} days ({DateTime.Now.AddDays(-ConfigManager.Config.Offline.PurgeDeletedCharactersDays).ToCommonString()})...");
                 ShardDatabaseOfflineTools.PurgeCharactersInParallel(ConfigManager.Config.Offline.PurgeDeletedCharactersDays, out var charactersPurged, out var playerBiotasPurged, out var possessionsPurged);
                 log.Info($"Purged {charactersPurged:N0} characters, {playerBiotasPurged:N0} player biotas and {possessionsPurged:N0} possessions.");
             }
@@ -170,6 +176,32 @@ namespace ACE.Server
                 ShardDatabaseOfflineTools.PurgeOrphanedBiotasInParallel(out var numberOfBiotasPurged);
                 log.Info($"Purged {numberOfBiotasPurged:N0} biotas.");
             }
+
+            if (ConfigManager.Config.Offline.PruneDeletedCharactersFromFriendLists)
+            {
+                log.Info($"Pruning invalid friends from all friend lists...");
+                ShardDatabaseOfflineTools.PruneDeletedCharactersFromFriendLists(out var numberOfFriendsPruned);
+                log.Info($"Pruned {numberOfFriendsPruned:N0} invalid friends found on friend lists.");
+            }
+
+            if (ConfigManager.Config.Offline.PruneDeletedObjectsFromShortcutBars)
+            {
+                log.Info($"Pruning invalid shortcuts from all shortcut bars...");
+                ShardDatabaseOfflineTools.PruneDeletedObjectsFromShortcutBars(out var numberOfShortcutsPruned);
+                log.Info($"Pruned {numberOfShortcutsPruned:N0} deleted objects found on shortcut bars.");
+            }
+
+            if (ConfigManager.Config.Offline.PruneDeletedCharactersFromSquelchLists)
+            {
+                log.Info($"Pruning invalid squelches from all squelch lists...");
+                ShardDatabaseOfflineTools.PruneDeletedCharactersFromSquelchLists(out var numberOfSquelchesPruned);
+                log.Info($"Pruned {numberOfSquelchesPruned:N0} invalid squelched characters found on squelch lists.");
+            }
+
+            if (ConfigManager.Config.Offline.AutoServerUpdateCheck)
+                CheckForServerUpdate();
+            else
+                log.Info($"AutoServerVersionCheck is disabled...");
 
             if (ConfigManager.Config.Offline.AutoUpdateWorldDatabase)
             {
@@ -187,15 +219,32 @@ namespace ACE.Server
                 log.Info($"AutoApplyDatabaseUpdates is disabled...");
 
             // This should only be enabled manually. To enable it, simply uncomment this line
-            //ACE.Database.OfflineTools.Shard.BiotaGuidConsolidator.ConsolidateBiotaGuids(0xC0000000, out int numberOfBiotasConsolidated, out int numberOfErrors);
+            //ACE.Database.OfflineTools.Shard.BiotaGuidConsolidator.ConsolidateBiotaGuids(0xA0000000, true, false, out int numberOfBiotasConsolidated, out int numberOfBiotasSkipped, out int numberOfErrors);
+            //ACE.Database.OfflineTools.Shard.BiotaGuidConsolidator.ConsolidateBiotaGuids(0xD0000000, false, true, out int numberOfBiotasConsolidated2, out int numberOfBiotasSkipped2, out int numberOfErrors2);
 
             ShardDatabaseOfflineTools.CheckForBiotaPropertiesPaletteOrderColumnInShard();
+
+            // pre-load starterGear.json, abort startup if file is not found as it is required to create new characters.
+            if (Factories.StarterGearFactory.GetStarterGearConfiguration() == null)
+            {
+                log.Fatal("Unable to load or parse starterGear.json. ACEmulator will now abort startup.");
+                ServerManager.StartupAbort();
+                Environment.Exit(0);
+            }
 
             log.Info("Initializing ServerManager...");
             ServerManager.Initialize();
 
             log.Info("Initializing DatManager...");
             DatManager.Initialize(ConfigManager.Config.Server.DatFilesDirectory, true);
+
+            if (ConfigManager.Config.DDD.EnableDATPatching)
+            {
+                log.Info("Initializing DDDManager...");
+                DDDManager.Initialize();
+            }
+            else
+                log.Info("DAT Patching Disabled...");
 
             log.Info("Initializing DatabaseManager...");
             DatabaseManager.Initialize();
@@ -225,9 +274,9 @@ namespace ACE.Server
             if (ConfigManager.Config.Server.WorldDatabasePrecaching)
             {
                 log.Info("Precaching Weenies...");
-                DatabaseManager.World.CacheAllWeeniesInParallel();
+                DatabaseManager.World.CacheAllWeenies();
                 log.Info("Precaching Cookbooks...");
-                DatabaseManager.World.CacheAllCookbooksInParallel();
+                DatabaseManager.World.CacheAllCookbooks();
                 log.Info("Precaching Events...");
                 DatabaseManager.World.GetAllEvents();
                 log.Info("Precaching House Portals...");
@@ -270,12 +319,23 @@ namespace ACE.Server
 
             // Free up memory before the server goes online. This can free up 6 GB+ on larger servers.
             log.Info("Forcing .net garbage collection...");
-            for (int i = 0 ; i < 10 ; i++)
+            for (int i = 0; i < 10; i++)
+            {
+                // https://learn.microsoft.com/en-us/dotnet/standard/garbage-collection/fundamentals
+                // https://learn.microsoft.com/en-us/dotnet/api/system.runtime.gcsettings.largeobjectheapcompactionmode
+                GCSettings.LargeObjectHeapCompactionMode = GCLargeObjectHeapCompactionMode.CompactOnce;
+
                 GC.Collect();
+            }
 
             // This should be last
             log.Info("Initializing CommandManager...");
             CommandManager.Initialize();
+
+            //Register mod commands
+            log.Info("Registering ModManager commands...");
+            ModManager.RegisterCommands();
+            ModManager.ListMods();
 
             if (!PropertyManager.GetBool("world_closed", false).Item)
             {

@@ -25,9 +25,9 @@ namespace ACE.Common.Performance
         /// <summary>
         /// Average event duration in seconds
         /// </summary>
-        public double AverageEventDuration => TotalSeconds / TotalEvents;
+        public double AverageEventDuration => TotalEvents == 0 ? 0 : (TotalSeconds / TotalEvents);
 
-        public double RegisterEvent(double totalSeconds)
+        public void RegisterEvent(double totalSeconds)
         {
             LastEvent = totalSeconds;
 
@@ -37,10 +37,8 @@ namespace ACE.Common.Performance
             if (LastEvent > LongestEvent)
                 LongestEvent = LastEvent;
 
-            if (LastEvent < ShortestEvent)
+            if (TotalEvents == 1 || LastEvent < ShortestEvent)
                 ShortestEvent = LastEvent;
-
-            return LastEvent;
         }
 
         public void ClearHistory()

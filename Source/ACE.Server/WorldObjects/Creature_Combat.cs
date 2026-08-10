@@ -7,7 +7,9 @@ using ACE.Entity.Enum;
 using ACE.Entity.Enum.Properties;
 using ACE.Server.Entity;
 using ACE.Server.Entity.Actions;
+using ACE.Server.Network.GameEvent.Events;
 using ACE.Server.Network.GameMessages.Messages;
+using ACE.Server.Network.Structure;
 using ACE.Server.Physics.Animation;
 
 namespace ACE.Server.WorldObjects
@@ -55,10 +57,10 @@ namespace ACE.Server.WorldObjects
         /// <summary>
         /// Switches a player or creature to a new combat stance
         /// </summary>
-        public float SetCombatMode(CombatMode combatMode, out float queueTime)
+        public float SetCombatMode(CombatMode combatMode, out float queueTime, bool forceHandCombat = false, bool animOnly = false)
         {
             // check if combat stance actually needs switching
-            var combatStance = GetCombatStance();
+            var combatStance = forceHandCombat ? MotionStance.HandCombat : GetCombatStance();
 
             //Console.WriteLine($"{Name}.SetCombatMode({combatMode}), CombatStance: {combatStance}");
 
@@ -71,17 +73,18 @@ namespace ACE.Server.WorldObjects
             if (CombatMode == CombatMode.Missile)
                 HideAmmo();
 
-            CombatMode = combatMode;
+            if (!animOnly)
+                CombatMode = combatMode;
 
             var animLength = 0.0f;
 
-            switch (CombatMode)
+            switch (combatMode)
             {
                 case CombatMode.NonCombat:
                     animLength = HandleSwitchToPeaceMode();
                     break;
                 case CombatMode.Melee:
-                    animLength = HandleSwitchToMeleeCombatMode();
+                    animLength = HandleSwitchToMeleeCombatMode(forceHandCombat);
                     break;
                 case CombatMode.Magic:
                     animLength = HandleSwitchToMagicCombatMode();
@@ -90,7 +93,7 @@ namespace ACE.Server.WorldObjects
                     animLength = HandleSwitchToMissileCombatMode();
                     break;
                 default:
-                    log.InfoFormat($"Unknown combat mode {CombatMode} for {Name}");
+                    log.InfoFormat("Unknown combat mode {0} for {1}", CombatMode, Name);
                     break;
             }
 
@@ -108,7 +111,7 @@ namespace ACE.Server.WorldObjects
             var animLength = MotionTable.GetAnimationLength(MotionTableId, CurrentMotionState.Stance, MotionCommand.Ready, MotionCommand.NonCombat);
 
             var motion = new Motion(MotionStance.NonCombat);
-            ExecuteMotion(motion);
+            ExecuteMotionPersist(motion);
 
             var player = this as Player;
             if (player != null)
@@ -155,16 +158,16 @@ namespace ACE.Server.WorldObjects
         /// <summary>
         /// Switches a player or creature to melee attack stance
         /// </summary>
-        public float HandleSwitchToMeleeCombatMode()
+        public float HandleSwitchToMeleeCombatMode(bool forceHandCombat = false)
         {
             // get appropriate combat stance for currently wielded items
-            var combatStance = GetCombatStance();
+            var combatStance = forceHandCombat ? MotionStance.HandCombat : GetCombatStance();
 
             var animLength = SwitchCombatStyles();
             animLength += MotionTable.GetAnimationLength(MotionTableId, CurrentMotionState.Stance, MotionCommand.Ready, (MotionCommand)combatStance);
 
             var motion = new Motion(combatStance);
-            ExecuteMotion(motion);
+            ExecuteMotionPersist(motion);
 
             var player = this as Player;
             if (player != null)
@@ -189,7 +192,7 @@ namespace ACE.Server.WorldObjects
             animLength += MotionTable.GetAnimationLength(MotionTableId, CurrentMotionState.Stance, MotionCommand.Ready, MotionCommand.Magic);
 
             var motion = new Motion(MotionStance.Magic);
-            ExecuteMotion(motion);
+            ExecuteMotionPersist(motion);
 
             var player = this as Player;
             if (player != null)
@@ -216,7 +219,7 @@ namespace ACE.Server.WorldObjects
             var swapTime = SwitchCombatStyles();
 
             var motion = new Motion(combatStance);
-            var stanceTime = ExecuteMotion(motion);
+            var stanceTime = ExecuteMotionPersist(motion);
 
             var ammo = GetEquippedAmmo();
             var reloadTime = 0.0f;
@@ -370,7 +373,7 @@ namespace ACE.Server.WorldObjects
             else
             {
                 LastWeaponSwap += animLength;
-                return (float)(LastWeaponSwap - currentTime);
+                return (float)(LastWeaponSwap - currentTime - animLength);
             }
         }
 
@@ -825,7 +828,7 @@ namespace ACE.Server.WorldObjects
             return sneakAttackMod;
         }
 
-        public void FightDirty(WorldObject target)
+        public void FightDirty(WorldObject target, WorldObject weapon)
         {
             // Skill description:
             // Your melee and missile attacks have a chance to weaken your opponent.
@@ -882,13 +885,13 @@ namespace ACE.Server.WorldObjects
             switch (AttackHeight)
             {
                 case ACE.Entity.Enum.AttackHeight.Low:
-                    FightDirty_ApplyLowAttack(creatureTarget);
+                    FightDirty_ApplyLowAttack(creatureTarget, weapon);
                     break;
                 case ACE.Entity.Enum.AttackHeight.Medium:
-                    FightDirty_ApplyMediumAttack(creatureTarget);
+                    FightDirty_ApplyMediumAttack(creatureTarget, weapon);
                     break;
                 case ACE.Entity.Enum.AttackHeight.High:
-                    FightDirty_ApplyHighAttack(creatureTarget);
+                    FightDirty_ApplyHighAttack(creatureTarget, weapon);
                     break;
             }
         }
@@ -897,7 +900,7 @@ namespace ACE.Server.WorldObjects
         /// Reduces the defense skills of the opponent by
         /// -10 if trained, or -20 if specialized
         /// </summary>
-        public void FightDirty_ApplyLowAttack(Creature target)
+        public void FightDirty_ApplyLowAttack(Creature target, WorldObject weapon)
         {
             var spellID = GetCreatureSkill(Skill.DirtyFighting).AdvancementClass == SkillAdvancementClass.Specialized ?
                 SpellId.DF_Specialized_DefenseDebuff : SpellId.DF_Trained_DefenseDebuff;
@@ -905,7 +908,11 @@ namespace ACE.Server.WorldObjects
             var spell = new Spell(spellID);
             if (spell.NotFound) return;  // TODO: friendly message to install DF patch
 
-            target.EnchantmentManager.Add(spell, this);
+            var addResult = target.EnchantmentManager.Add(spell, this, weapon);
+
+            if (target is Player playerTarget)
+                playerTarget.Session.Network.EnqueueSend(new GameEventMagicUpdateEnchantment(playerTarget.Session, new Enchantment(playerTarget, addResult.Enchantment)));
+
             target.EnqueueBroadcast(new GameMessageScript(target.Guid, PlayScript.DirtyFightingDefenseDebuff));
 
             FightDirty_SendMessage(target, spell);
@@ -916,7 +923,7 @@ namespace ACE.Server.WorldObjects
         /// 120 damage per 20 seconds if specialized
         /// </summary>
         /// <returns></returns>
-        public void FightDirty_ApplyMediumAttack(Creature target)
+        public void FightDirty_ApplyMediumAttack(Creature target, WorldObject weapon)
         {
             var spellID = GetCreatureSkill(Skill.DirtyFighting).AdvancementClass == SkillAdvancementClass.Specialized ?
                 SpellId.DF_Specialized_Bleed : SpellId.DF_Trained_Bleed;
@@ -924,7 +931,10 @@ namespace ACE.Server.WorldObjects
             var spell = new Spell(spellID);
             if (spell.NotFound) return;  // TODO: friendly message to install DF patch
 
-            target.EnchantmentManager.Add(spell, this);
+            var addResult = target.EnchantmentManager.Add(spell, this, weapon);
+
+            if (target is Player playerTarget)
+                playerTarget.Session.Network.EnqueueSend(new GameEventMagicUpdateEnchantment(playerTarget.Session, new Enchantment(playerTarget, addResult.Enchantment)));
 
             // only send if not already applied?
             target.EnqueueBroadcast(new GameMessageScript(target.Guid, PlayScript.DirtyFightingDamageOverTime));
@@ -936,7 +946,7 @@ namespace ACE.Server.WorldObjects
         /// Reduces the attack skills and healing rating for opponent
         /// by -10 if trained, or -20 if specialized
         /// </summary>
-        public void FightDirty_ApplyHighAttack(Creature target)
+        public void FightDirty_ApplyHighAttack(Creature target, WorldObject weapon)
         {
             // attack debuff
             var spellID = GetCreatureSkill(Skill.DirtyFighting).AdvancementClass == SkillAdvancementClass.Specialized ?
@@ -945,7 +955,13 @@ namespace ACE.Server.WorldObjects
             var spell = new Spell(spellID);
             if (spell.NotFound) return;  // TODO: friendly message to install DF patch
 
-            target.EnchantmentManager.Add(spell, this);
+            var addResult = target.EnchantmentManager.Add(spell, this, weapon);
+
+            var playerTarget = target as Player;
+
+            if (playerTarget != null)
+                playerTarget.Session.Network.EnqueueSend(new GameEventMagicUpdateEnchantment(playerTarget.Session, new Enchantment(playerTarget, addResult.Enchantment)));
+
             target.EnqueueBroadcast(new GameMessageScript(target.Guid, PlayScript.DirtyFightingAttackDebuff));
 
             FightDirty_SendMessage(target, spell);
@@ -957,7 +973,11 @@ namespace ACE.Server.WorldObjects
             spell = new Spell(spellID);
             if (spell.NotFound) return;  // TODO: friendly message to install DF patch
 
-            target.EnchantmentManager.Add(spell, this);
+            addResult = target.EnchantmentManager.Add(spell, this, weapon);
+
+            if (playerTarget != null)
+                playerTarget.Session.Network.EnqueueSend(new GameEventMagicUpdateEnchantment(playerTarget.Session, new Enchantment(playerTarget, addResult.Enchantment)));
+
             target.EnqueueBroadcast(new GameMessageScript(target.Guid, PlayScript.DirtyFightingHealDebuff));
 
             FightDirty_SendMessage(target, spell);
@@ -1039,6 +1059,8 @@ namespace ACE.Server.WorldObjects
                 {
                     if (sourcePet && targetPet)     // combat pets can't damage other pets
                         return false;
+                    else if (sourcePet && target.PlayerKillerStatus == PlayerKillerStatus.PK || targetPet && PlayerKillerStatus == PlayerKillerStatus.PK)   // combat pets can't damage pk-only creatures (ie. faction banners)
+                        return false;
                     else
                         return true;
                 }
@@ -1056,42 +1078,6 @@ namespace ACE.Server.WorldObjects
 
                 return false;
             }
-        }
-
-        /// <summary>
-        /// Called when a player or creature starts an attack
-        /// </summary>
-        public void OnAttack(Creature target)
-        {
-            // self-procs happen on attack, regardless if the attack is successfully landed
-            TryProcEquippedItems(this, true);
-        }
-
-        /// <summary>
-        /// Called when a targeted attack hits successfully
-        /// </summary>
-        public void OnHitTarget(Creature target)
-        {
-            // target-procs happen when the target is successfully hit.
-
-            // this should only be called when targeted attacks are landed.
-
-            // untargeted attacks, such as multi-projectile spells,
-            // should not call this method.
-
-            TryProcEquippedItems(target, false);
-        }
-
-        /// <summary>
-        /// Iterates through all of the equipped objects that have proc spells
-        /// matching the 'selfTarget' bool, and tries procing them w/ rng chance
-        /// </summary>
-        public void TryProcEquippedItems(Creature target, bool selfTarget)
-        {
-            var tryProcItems = EquippedObjects.Values.Where(i => i.HasProc && i.ProcSpellSelfTargeted == selfTarget);
-
-            foreach (var tryProcItem in tryProcItems)
-                tryProcItem.TryProcItem(this, target);
         }
 
         public static Skill GetDefenseSkill(CombatType combatType)
@@ -1112,7 +1098,7 @@ namespace ACE.Server.WorldObjects
         /// <summary>
         /// If one of these fields is set, potential aggro from Player or CombatPet movement terminates immediately
         /// </summary>
-        protected static readonly Tolerance PlayerCombatPat_MoveExclude = Tolerance.NoAttack | Tolerance.Appraise | Tolerance.Provoke | Tolerance.Retaliate | Tolerance.Monster;
+        protected static readonly Tolerance PlayerCombatPet_MoveExclude = Tolerance.NoAttack | Tolerance.Appraise | Tolerance.Provoke | Tolerance.Retaliate | Tolerance.Monster;
 
         /// <summary>
         /// If one of these fields is set, potential aggro from other monster movement terminates immediately
@@ -1123,6 +1109,11 @@ namespace ACE.Server.WorldObjects
         /// If one of these fields is set, potential aggro from Player or CombatPet attacks terminates immediately
         /// </summary>
         protected static readonly Tolerance PlayerCombatPet_RetaliateExclude = Tolerance.NoAttack | Tolerance.Monster;
+
+        /// <summary>
+        /// If one of these fields is set, potential aggro from monster alerts terminates immediately
+        /// </summary>
+        protected static readonly Tolerance AlertExclude = Tolerance.NoAttack | Tolerance.Provoke;
 
         /// <summary>
         /// Wakes up a monster if it can be alerted
@@ -1143,7 +1134,7 @@ namespace ACE.Server.WorldObjects
             // ensure monster is currently in idle state to wake up,
             // and it has no tolerance to players running nearby
             // TODO: investigate usage for tolerance
-            var tolerance = this is Player ? PlayerCombatPat_MoveExclude : Monster_MoveExclude;
+            var tolerance = this is Player ? PlayerCombatPet_MoveExclude : Monster_MoveExclude;
 
             if (monster.MonsterState != State.Idle || (monster.Tolerance & tolerance) != 0)
                 return false;
@@ -1188,7 +1179,7 @@ namespace ACE.Server.WorldObjects
             var motion = CurrentMotionState.MotionState.ForwardCommand.ToString();
             foreach (DamageType damageType in Enum.GetValues(typeof(DamageType)))
             {
-                if ((damageTypes & damageType) != 0)
+                if ((damageTypes & damageType) != 0 && !damageType.IsMultiDamage())
                 {
                     // handle multiple damage types
                     if (damageType == DamageType.Slash && motion.Contains("Thrust"))
@@ -1299,7 +1290,7 @@ namespace ACE.Server.WorldObjects
         /// </summary>
         public int GetDefenseImbues(ImbuedEffectType imbuedEffectType)
         {
-            return EquippedObjects.Values.Count(i => i.GetImbuedEffects().HasFlag(imbuedEffectType));
+            return EquippedObjects.Values.Count(i => i.ImbuedEffect.HasFlag(imbuedEffectType));
         }
 
         /// <summary>

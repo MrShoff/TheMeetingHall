@@ -47,7 +47,7 @@ namespace ACE.Server.Network.Handlers
             }
             catch (Exception ex)
             {
-                log.ErrorFormat("Received LoginRequest from {0} that threw an exception.", session.EndPoint);
+                log.ErrorFormat("Received LoginRequest from {0} that threw an exception.", session.EndPointC2S);
                 log.Error(ex);
             }
         }
@@ -66,7 +66,7 @@ namespace ACE.Server.Network.Handlers
                         if (WorldManager.WorldStatus == WorldManager.WorldStatusState.Open)
                             log.Info($"Auto creating account for: {loginRequest.Account}");
                         else
-                            log.Debug($"Auto creating account for: {loginRequest.Account}");
+                            log.DebugFormat("Auto creating account for: {0}", loginRequest.Account);
 
                         var accessLevel = (AccessLevel)ConfigManager.Config.Server.Accounts.DefaultAccessLevel;
 
@@ -80,14 +80,14 @@ namespace ACE.Server.Network.Handlers
                             log.Warn($"Automatically setting account AccessLevel to Admin for account \"{loginRequest.Account}\" because there are no admin accounts in the current database.");
                         }
 
-                        account = DatabaseManager.Authentication.CreateAccount(loginRequest.Account.ToLower(), loginRequest.Password, accessLevel, session.EndPoint.Address);
+                        account = DatabaseManager.Authentication.CreateAccount(loginRequest.Account.ToLower(), loginRequest.Password, accessLevel, session.EndPointC2S.Address);
                     }
                 }
             }
 
             try
             {
-                log.Debug($"new client connected: {loginRequest.Account}. setting session properties");
+                log.DebugFormat("new client connected: {0}. setting session properties", loginRequest.Account);
                 AccountSelectCallback(account, session, loginRequest);
             }
             catch (Exception ex)
@@ -100,12 +100,19 @@ namespace ACE.Server.Network.Handlers
 
         private static void AccountSelectCallback(Account account, Session session, PacketInboundLoginRequest loginRequest)
         {
-            packetLog.DebugFormat("ConnectRequest TS: {0}", Timers.PortalYearTicks);
+            if (packetLog.IsDebugEnabled)
+                packetLog.DebugFormat("ConnectRequest TS: {0}", Timers.PortalYearTicks);
 
             if (session.Network.ConnectionData.ServerSeed == null || session.Network.ConnectionData.ClientSeed == null)
             {
                 // these are null if ConnectionData.DiscardSeeds() is called because of some other error condition.
                 session.Terminate(SessionTerminationReason.BadHandshake, new GameMessageCharacterError(CharacterError.ServerCrash1));
+                return;
+            }
+
+            if (loginRequest.ClientVersion == null || !loginRequest.ClientVersion.Equals("1802"))
+            {
+                session.Terminate(SessionTerminationReason.ClientVersionIncorrect, new GameMessageBootAccount(" because your client is not the correct version for this server. Please visit http://play.emu.ac/ to update to latest client"));
                 return;
             }
 
@@ -132,9 +139,9 @@ namespace ACE.Server.Network.Handlers
                 }
 
                 if (WorldManager.WorldStatus == WorldManager.WorldStatusState.Open)
-                    log.Info($"client {loginRequest.Account} connected with no Password or GlsTicket included so booting");
+                    log.InfoFormat("client {0} connected with no Password or GlsTicket included so booting", loginRequest.Account);
                 else
-                    log.Debug($"client {loginRequest.Account} connected with no Password or GlsTicket included so booting");
+                    log.DebugFormat("client {0} connected with no Password or GlsTicket included so booting", loginRequest.Account);
 
                 session.Terminate(SessionTerminationReason.NotAuthorizedNoPasswordOrGlsTicketIncludedInLoginReq, new GameMessageCharacterError(CharacterError.AccountInvalid));
 
@@ -163,9 +170,9 @@ namespace ACE.Server.Network.Handlers
                     if (WorldManager.WorldStatus == WorldManager.WorldStatusState.Open)
                         log.Info($"client {loginRequest.Account} connected with non matching password so booting");
                     else
-                        log.Debug($"client {loginRequest.Account} connected with non matching password so booting");
+                        log.DebugFormat("client {0} connected with non matching password so booting", loginRequest.Account);
 
-                    session.Terminate(SessionTerminationReason.NotAuthorizedPasswordMismatch, new GameMessageBootAccount(" because the password entered for this account was not correct."));
+                    session.Terminate(SessionTerminationReason.NotAuthorizedPasswordMismatch, new GameMessageBootAccount(" because the password entered for this account was not correct"));
 
                     // TO-DO: temporary lockout of account preventing brute force password discovery
                     // exponential duration of lockout for targeted account
@@ -179,21 +186,26 @@ namespace ACE.Server.Network.Handlers
 
                     if (previouslyConnectedAccount != null)
                     {
+                        // Boot the existing account
                         previouslyConnectedAccount.Terminate(SessionTerminationReason.AccountLoggedIn, new GameMessageCharacterError(CharacterError.Logon));
+
+                        // We still can't let the new account in. They'll need to retry after the previous account has been successfully booted.
+                        session.Terminate(SessionTerminationReason.AccountInUse, new GameMessageCharacterError(CharacterError.Logon));
+                        return;
                     }
                 }
 
                 if (WorldManager.WorldStatus == WorldManager.WorldStatusState.Open)
                     log.Info($"client {loginRequest.Account} connected with verified password");
                 else
-                    log.Debug($"client {loginRequest.Account} connected with verified password");
+                    log.DebugFormat("client {0} connected with verified password", loginRequest.Account);
             }
             else if (loginRequest.NetAuthType == NetAuthType.GlsTicket)
             {
                 if (WorldManager.WorldStatus == WorldManager.WorldStatusState.Open)
                     log.Info($"client {loginRequest.Account} connected with GlsTicket which is not implemented yet so booting");
                 else
-                    log.Debug($"client {loginRequest.Account} connected with GlsTicket which is not implemented yet so booting");
+                    log.DebugFormat("client {0} connected with GlsTicket which is not implemented yet so booting", loginRequest.Account);
 
                 session.Terminate(SessionTerminationReason.NotAuthorizedGlsTicketNotImplementedToProcLoginReq, new GameMessageCharacterError(CharacterError.AccountInvalid));
 
@@ -206,7 +218,7 @@ namespace ACE.Server.Network.Handlers
                 if (now < account.BanExpireTime.Value)
                 {
                     var reason = account.BanReason;
-                    session.Terminate(SessionTerminationReason.AccountBanned, new GameMessageBootAccount($"{(reason != null ? $" - {reason}" : null)}"), null, reason);
+                    session.Terminate(SessionTerminationReason.AccountBanned, new GameMessageAccountBanned(account.BanExpireTime.Value, $"{(reason != null ? $" - {reason}" : null)}"), null, reason);
                     return;
                 }
                 else
@@ -215,7 +227,7 @@ namespace ACE.Server.Network.Handlers
                 }
             }
 
-            account.UpdateLastLogin(session.EndPoint.Address);
+            account.UpdateLastLogin(session.EndPointC2S.Address);
 
             session.SetAccount(account.AccountId, account.AccountName, (AccessLevel)account.AccessLevel);
             session.State = SessionState.AuthConnectResponse;

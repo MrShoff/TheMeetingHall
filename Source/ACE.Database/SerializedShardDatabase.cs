@@ -45,7 +45,7 @@ namespace ACE.Database
 
         private void DoWork()
         {
-            while (!_queue.IsAddingCompleted)
+            while (!_queue.IsCompleted)
             {
                 try
                 {
@@ -126,11 +126,11 @@ namespace ACE.Database
         }
 
 
-        public void SaveBiotasInParallel(IEnumerable<(ACE.Entity.Models.Biota biota, ReaderWriterLockSlim rwLock)> biotas, Action<bool> callback)
+        public void SaveBiotasInParallel(IEnumerable<(ACE.Entity.Models.Biota biota, ReaderWriterLockSlim rwLock)> biotas, Action<bool> callback, bool doNotAddToCache = false)
         {
             _queue.Add(new Task(() =>
             {
-                var result = BaseDatabase.SaveBiotasInParallel(biotas);
+                var result = BaseDatabase.SaveBiotasInParallel(biotas, doNotAddToCache);
                 callback?.Invoke(result);
             }));
         }
@@ -207,6 +207,15 @@ namespace ACE.Database
             _queue.Add(new Task(() =>
             {
                 var result = BaseDatabase.GetCharacters(accountId, includeDeleted);
+                callback?.Invoke(result);
+            }));
+        }
+
+        public void GetCharacter(uint characterId, Action<Character> callback)
+        {
+            _queue.Add(new Task(() =>
+            {
+                var result = BaseDatabase.GetCharacter(characterId);
                 callback?.Invoke(result);
             }));
         }

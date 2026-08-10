@@ -131,7 +131,7 @@ namespace ACE.Server.WorldObjects.Managers
         /// <summary>
         /// Add/update an enchantment in this object's registry
         /// </summary>
-        public virtual AddEnchantmentResult Add(Spell spell, WorldObject caster, bool equip = false)
+        public virtual AddEnchantmentResult Add(Spell spell, WorldObject caster, WorldObject weapon, bool equip = false, bool isWeaponSpell = false)
         {
             var result = new AddEnchantmentResult();
 
@@ -141,7 +141,7 @@ namespace ACE.Server.WorldObjects.Managers
             // if none, add new record
             if (entries.Count == 0)
             {
-                var newEntry = BuildEntry(spell, caster, equip);
+                var newEntry = BuildEntry(spell, caster, weapon, equip, isWeaponSpell);
                 newEntry.LayerId = 1;
                 WorldObject.Biota.PropertiesEnchantmentRegistry.AddEnchantment(newEntry, WorldObject.BiotaDatabaseLock);
                 WorldObject.ChangesDetected = true;
@@ -151,7 +151,7 @@ namespace ACE.Server.WorldObjects.Managers
                 return result;
             }
 
-            result.BuildStack(entries, spell, caster, equip);
+            result.BuildStack(entries, spell, caster, equip, isWeaponSpell);
 
             // handle cases:
             // surpassing: new spell is written to next layer
@@ -167,7 +167,7 @@ namespace ACE.Server.WorldObjects.Managers
 
             if (refreshSpell == null)
             {
-                var newEntry = BuildEntry(spell, caster, equip);
+                var newEntry = BuildEntry(spell, caster, weapon, equip);
                 newEntry.LayerId = result.NextLayerId;
                 WorldObject.Biota.PropertiesEnchantmentRegistry.AddEnchantment(newEntry, WorldObject.BiotaDatabaseLock);
 
@@ -182,7 +182,7 @@ namespace ACE.Server.WorldObjects.Managers
                 // should be update the StatModVal here?
 
                 var duration = spell.Duration;
-                if (caster is Player player && player.AugmentationIncreasedSpellDuration > 0 && spell.DotDuration == 0)
+                if (caster is Player player && player.AugmentationIncreasedSpellDuration > 0 && !isWeaponSpell && spell.DotDuration == 0)
                     duration *= 1.0f + player.AugmentationIncreasedSpellDuration * 0.2f;
 
                 var timeRemaining = refreshSpell.Duration + refreshSpell.StartTime;
@@ -206,7 +206,7 @@ namespace ACE.Server.WorldObjects.Managers
         /// <summary>
         /// Builds an enchantment registry entry from a spell ID
         /// </summary>
-        private PropertiesEnchantmentRegistry BuildEntry(Spell spell, WorldObject caster = null, bool equip = false)
+        private PropertiesEnchantmentRegistry BuildEntry(Spell spell, WorldObject caster = null, WorldObject weapon = null, bool equip = false, bool isWeaponSpell = false)
         {
             var entry = new PropertiesEnchantmentRegistry();
 
@@ -219,7 +219,7 @@ namespace ACE.Server.WorldObjects.Managers
             {
                 entry.Duration = spell.Duration;
 
-                if (caster is Player player && player.AugmentationIncreasedSpellDuration > 0 && spell.DotDuration == 0)
+                if (caster is Player player && player.AugmentationIncreasedSpellDuration > 0 && !isWeaponSpell && spell.DotDuration == 0)
                     entry.Duration *= 1.0f + player.AugmentationIncreasedSpellDuration * 0.2f;
             }
             else
@@ -247,7 +247,10 @@ namespace ACE.Server.WorldObjects.Managers
             entry.StatModKey = spell.StatModKey;
             entry.StatModValue = spell.StatModVal;
 
-            if (spell.DotDuration != 0)
+            if (spell.IsBeneficial) // should "server" data be fixed or is this the better way to do this?
+                entry.StatModType |= EnchantmentTypeFlags.Beneficial;
+
+            if (spell.IsDamageOverTime)
             {
                 var heartbeatInterval = WorldObject.HeartbeatInterval ?? 5.0f;
 
@@ -260,7 +263,7 @@ namespace ACE.Server.WorldObjects.Managers
                 // calculate runtime StatModValue for enchantment
                 if (caster != null)
                 {
-                    entry.StatModValue = caster.CalculateDotEnchantment_StatModValue(spell, WorldObject, entry.StatModValue);
+                    entry.StatModValue = caster.CalculateDotEnchantment_StatModValue(spell, WorldObject, weapon, entry.StatModValue);
                 }
                 //Console.WriteLine($"enchantment_statModVal: {entry.StatModValue}");
             }
@@ -356,6 +359,19 @@ namespace ACE.Server.WorldObjects.Managers
         {
             // exclude cooldowns and enchantments from items
             var spellsToExclude = WorldObject.Biota.PropertiesEnchantmentRegistry.Clone(WorldObject.BiotaDatabaseLock).Where(i => i.Duration == -1 || i.SpellId > short.MaxValue).Select(i => i.SpellId);
+
+            WorldObject.Biota.PropertiesEnchantmentRegistry.RemoveAllEnchantments(spellsToExclude, WorldObject.BiotaDatabaseLock);
+            WorldObject.ChangesDetected = true;
+        }
+
+        /// <summary>
+        /// Removes all enchantments except for beneficial enchantments, vitae and item spells
+        /// Called on player death
+        /// </summary>
+        public virtual void RemoveAllBadEnchantments()
+        {
+            // exclude beneficial enchantments, cooldowns and enchantments from items
+            var spellsToExclude = WorldObject.Biota.PropertiesEnchantmentRegistry.Clone(WorldObject.BiotaDatabaseLock).Where(i => i.StatModType.HasFlag(EnchantmentTypeFlags.Beneficial) || i.Duration == -1 || i.SpellId > short.MaxValue).Select(i => i.SpellId);
 
             WorldObject.Biota.PropertiesEnchantmentRegistry.RemoveAllEnchantments(spellsToExclude, WorldObject.BiotaDatabaseLock);
             WorldObject.ChangesDetected = true;
@@ -532,7 +548,7 @@ namespace ACE.Server.WorldObjects.Managers
             //var enchantments = GetEnchantments_TopLayer(WorldObject.Biota.GetEnchantments(WorldObject.BiotaDatabaseLock));
             var enchantments = WorldObject.Biota.PropertiesEnchantmentRegistry.Clone(WorldObject.BiotaDatabaseLock);
 
-            var filtered = enchantments.Where(e => e.PowerLevel <= maxPower);
+            var filtered = enchantments.Where(e => e.PowerLevel >= minPower && e.PowerLevel <= maxPower);
 
             // no dispel for enchantments from item sources (and vitae)
             filtered = filtered.Where(e => e.Duration != -1);
@@ -656,13 +672,14 @@ namespace ACE.Server.WorldObjects.Managers
             return 0;
         }
 
+        // refactor me
 
         /// <summary>
-        /// Returns the bonus to an attribute from enchantments
+        /// Returns the additive modifers to an attribute from enchantments
         /// </summary>
-        public virtual int GetAttributeMod(PropertyAttribute attribute)
+        public virtual int GetAttributeMod_Additive(PropertyAttribute attribute)
         {
-            var enchantments = GetEnchantments_TopLayer(EnchantmentTypeFlags.Attribute, (uint)attribute, true);
+            var enchantments = GetEnchantments_TopLayer(EnchantmentTypeFlags.Attribute | EnchantmentTypeFlags.Additive, (uint)attribute, true);
 
             var attributeMod = 0;
             foreach (var enchantment in enchantments)
@@ -672,12 +689,25 @@ namespace ACE.Server.WorldObjects.Managers
         }
 
         /// <summary>
-        /// Gets the direct modifiers to a vital / secondary attribute
+        /// Returns the multiplicative modifiers to an attribute from enchantments
+        /// </summary>
+        public virtual float GetAttributeMod_Multiplier(PropertyAttribute attribute)
+        {
+            var enchantments = GetEnchantments_TopLayer(EnchantmentTypeFlags.Attribute | EnchantmentTypeFlags.Multiplicative, (uint)attribute, true);
+
+            var multiplier = 1.0f;
+            foreach (var enchantment in enchantments)
+                multiplier *= enchantment.StatModValue;
+
+            return multiplier;
+        }
+
+        /// <summary>
+        /// Gets the additive modifiers to a vital / secondary attribute
         /// </summary>
         public virtual float GetVitalMod_Additives(CreatureVital vital)
         {
-            var typeFlags = EnchantmentTypeFlags.SecondAtt | EnchantmentTypeFlags.SingleStat | EnchantmentTypeFlags.Additive;
-            var enchantments = GetEnchantments_TopLayer(typeFlags, (uint)vital.Vital);
+            var enchantments = GetEnchantments_TopLayer(EnchantmentTypeFlags.SecondAtt | EnchantmentTypeFlags.Additive, (uint)vital.Vital, true);
 
             // additive
             var modifier = 0.0f;
@@ -687,11 +717,13 @@ namespace ACE.Server.WorldObjects.Managers
             return modifier;
         }
 
+        /// <summary>
+        /// Gets the multiplicative modifiers to a vital / secondary attribute
+        /// </summary>
         public virtual float GetVitalMod_Multiplier(CreatureVital vital)
         {
             // multiplicatives (asheron's lesser benediction)
-            var typeFlags = EnchantmentTypeFlags.SecondAtt | EnchantmentTypeFlags.SingleStat | EnchantmentTypeFlags.Multiplicative;
-            var enchantments = GetEnchantments_TopLayer(typeFlags, (uint)vital.Vital);
+            var enchantments = GetEnchantments_TopLayer(EnchantmentTypeFlags.SecondAtt | EnchantmentTypeFlags.Multiplicative, (uint)vital.Vital, true);
 
             var multiplier = 1.0f;
             foreach (var enchantment in enchantments)
@@ -711,7 +743,7 @@ namespace ACE.Server.WorldObjects.Managers
             // should be additive in database, update when everything is in sync
             var modifier = 0.0f;
 
-            foreach (var enchantment in enchantments)
+            foreach (var enchantment in enchantments.OrderByDescending(i => i.PowerLevel).Take(1))
             {
                 if (enchantment.StatModType.HasFlag(EnchantmentTypeFlags.Multiplicative))
                     modifier += enchantment.StatModValue - 1.0f;
@@ -722,11 +754,11 @@ namespace ACE.Server.WorldObjects.Managers
         }
 
         /// <summary>
-        /// Returns the bonus to a skill from enchantments
+        /// Returns the additive modifiers to a skill from enchantments
         /// </summary>
-        public virtual int GetSkillMod(Skill skill)
+        public virtual int GetSkillMod_Additives(Skill skill)
         {
-            var enchantments = GetEnchantments_TopLayer(EnchantmentTypeFlags.Skill, (uint)skill, true);
+            var enchantments = GetEnchantments_TopLayer(EnchantmentTypeFlags.Skill | EnchantmentTypeFlags.Additive, (uint)skill, true);
 
             var skillMod = 0;
             foreach (var enchantment in enchantments)
@@ -741,6 +773,20 @@ namespace ACE.Server.WorldObjects.Managers
             return skillMod;
         }
 
+        /// <summary>
+        /// Returns the multiplicative modifiers to a skill from enchantments
+        /// </summary>
+        public virtual float GetSkillMod_Multiplier(Skill skill)
+        {
+            // shroud spells
+            var enchantments = GetEnchantments_TopLayer(EnchantmentTypeFlags.Skill | EnchantmentTypeFlags.Multiplicative, (uint)skill, true);
+
+            var multiplier = 1.0f;
+            foreach (var enchantment in enchantments)
+                multiplier *= enchantment.StatModValue;
+
+            return multiplier;
+        }
 
         /// <summary>
         /// Returns the sum of the StatModValues for an EnchantmentTypeFlag
@@ -770,7 +816,7 @@ namespace ACE.Server.WorldObjects.Managers
             var enchantments = GetEnchantments_TopLayer(EnchantmentTypeFlags.Additive, (uint)statModKey);
 
             var modifier = 0;
-            foreach (var enchantment in enchantments.Where(e => ((EnchantmentTypeFlags)e.StatModType & EnchantmentTypeFlags.Skill) == 0))
+            foreach (var enchantment in enchantments.Where(e => (e.StatModType & EnchantmentTypeFlags.Skill) == 0))
                 modifier += (int)enchantment.StatModValue;
 
             return modifier;
@@ -1245,10 +1291,21 @@ namespace ACE.Server.WorldObjects.Managers
 
             // do healing
             var healAmount = creature.UpdateVitalDelta(creature.Health, (int)Math.Round(tickAmountTotal));
-            creature.DamageHistory.OnHeal((uint)healAmount);
+
+            // account for negative HealOverTime spells, such as 5172 - Spectral Fountain Sip
+            if (healAmount >= 0)
+                creature.DamageHistory.OnHeal((uint)healAmount);
+            else
+                creature.DamageHistory.Add(creature, DamageType.Health, (uint)-healAmount);
 
             if (creature is Player player)
-                player.SendMessage($"You receive {healAmount} points of periodic healing.", PropertyManager.GetBool("aetheria_heal_color").Item ? ChatMessageType.Broadcast : ChatMessageType.Combat);
+                player.SendMessage($"You receive {Math.Abs(healAmount)} points of periodic {((healAmount >= 0) ? "healing" : "harm")}.", PropertyManager.GetBool("aetheria_heal_color").Item ? ChatMessageType.Broadcast : ChatMessageType.Combat);
+
+            if (creature.IsDead)
+            {
+                creature.OnDeath(creature.DamageHistory.LastDamager, DamageType.Health, false);
+                creature.Die();
+            }
         }
 
         /// <summary>
@@ -1282,7 +1339,7 @@ namespace ACE.Server.WorldObjects.Managers
                 var damager = WorldObject.CurrentLandblock?.GetObject(enchantment.CasterObjectId);
                 if (damager == null)
                 {
-                    Console.WriteLine($"{WorldObject.Name}.ApplyDamageTick() - couldn't find damager {enchantment.CasterObjectId:X8}");
+                    //Console.WriteLine($"{WorldObject.Name}.ApplyDamageTick() - couldn't find damager {enchantment.CasterObjectId:X8}");
                     continue;
                 }
 
@@ -1310,6 +1367,13 @@ namespace ACE.Server.WorldObjects.Managers
                 var useNetherDotDamageRating = targetPlayer != null;
 
                 var damageResistRatingMod = creature.GetDamageResistRatingMod(CombatType.Magic, useNetherDotDamageRating);   // df?
+
+                if (sourcePlayer != null && targetPlayer != null)
+                {
+                    var pkDamageResistRatingMod = Creature.GetNegativeRatingMod(targetPlayer.GetPKDamageResistRating());
+
+                    damageResistRatingMod = Creature.AdditiveCombine(damageResistRatingMod, pkDamageResistRatingMod);
+                }
 
                 var dotResistRatingMod = Creature.GetNegativeRatingMod(creature.GetDotResistanceRating());  // should this be here, or somewhere else?
                                                                                                             // should this affect NetherDotDamageRating?

@@ -81,7 +81,7 @@ namespace ACE.Server.Entity
                 Formula = new SpellFormula(this, _formula);
 
             if (loadDB && (_spell == null || _spellBase == null))
-                log.Debug($"Spell.Init(spellID = {spellID}, loadDB = {loadDB}) failed! {(_spell == null ? "_spell was null" : "")} {(_spellBase == null ? "_spellBase was null" : "")}");
+                log.DebugFormat("Spell.Init(spellID = {0}, loadDB = {1}) failed! {2} {3}", spellID, loadDB, (_spell == null ? "_spell was null" : ""), (_spellBase == null ? "_spellBase was null" : ""));
         }
 
         /// <summary>
@@ -131,7 +131,28 @@ namespace ACE.Server.Entity
 
         public bool IsTracking => !Flags.HasFlag(SpellFlags.NonTrackingProjectile);
 
-        public bool IsFellowshipSpell => Flags.HasFlag(SpellFlags.FellowshipSpell);
+        public bool IsFellowshipSpell
+        {
+            get
+            {
+                // some spells are missing SpellFlags.FellowshipSpell:
+                // 3043 - Kiss of the Grave
+                // 3320 - Lesser Corrosive Ward
+                // 3375 - Fungal Bloom
+                // 3470 - Lesser Endless Well
+                // 3474 - Lesser Soothing Wind
+                // 3478 - Lesser Golden Wind
+
+                // some spells have SpellFlags.FellowshipSpell, but aren't an actual Fellow* MetaSpellType:
+                // 3337 - Inferno Ward (Enchantment)
+                // 3381 - Debilitating Spore (Boost)
+                // 3382 - Diseased Air (Boost)
+                // 3406 - Kivik Lir's Boon (Enchantment)
+
+                return Flags.HasFlag(SpellFlags.FellowshipSpell) ||
+                    MetaSpellType >= SpellType.FellowBoost && MetaSpellType <= SpellType.FellowDispel;
+            }
+        }
 
         public List<uint> TryBurnComponents(Player player)
         {
@@ -230,7 +251,49 @@ namespace ACE.Server.Entity
         /// <summary>
         /// Returns TRUE if spell category matches impen / bane / brittlemail / lure
         /// </summary>
-        public bool IsImpenBaneType => Category >= SpellCategory.ArmorValueRaising && Category <= SpellCategory.AcidicResistanceLowering;
+        public bool IsImpenBaneType
+        {
+            get
+            {
+                switch (Category)
+                {
+                    case SpellCategory n when n >= SpellCategory.ArmorValueRaising && n <= SpellCategory.AcidicResistanceLowering:
+                    case SpellCategory.ArmorValueRaisingRare:
+                    case SpellCategory.AcidResistanceRaisingRare:
+                    case SpellCategory.BludgeonResistanceRaisingRare:
+                    case SpellCategory.ColdResistanceRaisingRare:
+                    case SpellCategory.ElectricResistanceRaisingRare:
+                    case SpellCategory.FireResistanceRaisingRare:
+                    case SpellCategory.PierceResistanceRaisingRare:
+                    case SpellCategory.SlashResistanceRaisingRare:
+                        return true;
+                    default:
+                        return false;
+                }
+            }
+        }
+
+        /// <summary>
+        /// Returns TRUE if spell category matches spells that should redirect to items player is holding
+        /// </summary>
+        public bool IsItemRedirectableType
+        {
+            get
+            {
+                switch (Category)
+                {
+                    case SpellCategory.DamageRaisingRare:
+                    case SpellCategory.AttackModRaisingRare:
+                    case SpellCategory.DefenseModRaisingRare:
+                    case SpellCategory.WeaponTimeRaisingRare:
+                    case SpellCategory.AppraisalResistanceLoweringRare:
+                    case SpellCategory.MaxDamageRaising:
+                        return true;
+                    default:
+                        return false;
+                }
+            }
+        }
 
         public bool IsNegativeRedirectable => IsHarmful && (IsImpenBaneType || IsOtherNegativeRedirectable);
 
@@ -357,6 +420,43 @@ namespace ACE.Server.Entity
                 return maxVitals;
             }
         }
+
+        /// <summary>
+        /// Returns TRUE if this spell is a DamageOverTime or HealingOverTime spell
+        /// </summary>
+        public bool IsDamageOverTime
+        {
+            get
+            {
+                if (Flags.HasFlag(SpellFlags.DamageOverTime))
+                    return true;
+
+                switch (Category)
+                {
+                    case SpellCategory.HealOverTimeRaising:
+                    case SpellCategory.DamageOverTimeRaising:
+                    case SpellCategory.AetheriaProcHealthOverTimeRaising:
+                    case SpellCategory.AetheriaProcDamageOverTimeRaising:
+                    case SpellCategory.NetherDamageOverTimeRaising:
+                    case SpellCategory.NetherDamageOverTimeRaising2:
+                    case SpellCategory.NetherDamageOverTimeRaising3:
+
+                        return true;
+                }
+
+                switch ((PropertyInt)StatModKey)
+                {
+                    case PropertyInt.HealOverTime:
+                    case PropertyInt.DamageOverTime:
+
+                        return true;
+                }
+
+                return false;
+            }
+        }
+
+        public bool HasExtraTick => IsDamageOverTime;
 
         public bool Equals(Spell spell)
         {

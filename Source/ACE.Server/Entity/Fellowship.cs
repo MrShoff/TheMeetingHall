@@ -99,7 +99,7 @@ namespace ACE.Server.Entity
                 }
             }
 
-            if (FellowshipMembers.Count == MaxFellows)
+            if (FellowshipMembers.Count >= MaxFellows)
             {
                 inviter.Session.Network.EnqueueSend(new GameEventWeenieError(inviter.Session, WeenieError.YourFellowshipIsFull));
                 return;
@@ -107,9 +107,7 @@ namespace ACE.Server.Entity
 
             if (newMember.Fellowship != null || FellowshipMembers.ContainsKey(newMember.Guid.Full))
             {
-                // todo: can't seem to find pcap of this scenario... seems odd..
-                inviter.Session.Network.EnqueueSend(new GameMessageSystemChat($"{newMember.Name} is already in a fellowship", ChatMessageType.Fellowship));
-                //inviter.Session.Network.EnqueueSend(new GameEventWeenieError(inviter.Session, WeenieError.FellowshipMember)); 
+                inviter.Session.Network.EnqueueSend(new GameMessageSystemChat($"{newMember.Name} is already a member of a Fellowship.", ChatMessageType.Broadcast));
             }
             else
             {
@@ -124,7 +122,12 @@ namespace ACE.Server.Entity
                     AddConfirmedMember(inviter, newMember, true);
                 }
                 else
-                    newMember.ConfirmationManager.EnqueueSend(new Confirmation_Fellowship(inviter.Guid, newMember.Guid), inviter.Name);
+                {
+                    if (!newMember.ConfirmationManager.EnqueueSend(new Confirmation_Fellowship(inviter.Guid, newMember.Guid), inviter.Name))
+                    {
+                        inviter.Session.Network.EnqueueSend(new GameMessageSystemChat($"{newMember.Name} is busy.", ChatMessageType.Broadcast));
+                    }
+                }
             }
         }
 
@@ -145,7 +148,7 @@ namespace ACE.Server.Entity
                 return;
             }
 
-            if (FellowshipMembers.Count == 9)
+            if (FellowshipMembers.Count >= MaxFellows)
             {
                 inviter.Session.Network.EnqueueSend(new GameEventWeenieError(inviter.Session, WeenieError.YourFellowshipIsFull));
                 return;
@@ -174,6 +177,9 @@ namespace ACE.Server.Entity
             }
 
             UpdateAllMembers();
+
+            if (inviter.CurrentMotionState.Stance == MotionStance.NonCombat) // only do this motion if inviter is at peace, other times motion is skipped. 
+                inviter.SendMotionAsCommands(MotionCommand.BowDeep, MotionStance.NonCombat);
         }
 
         public void RemoveFellowshipMember(Player player, Player leader)
@@ -454,9 +460,10 @@ namespace ACE.Server.Entity
 
             var fellows = GetFellowshipMembers();
 
-            var allOver50 = !fellows.Values.Any(f => (f.Level ?? 1) < 50 || (f.Level ?? 1) > 275);            
+            var allEvenShareLevel = PropertyManager.GetLong("fellowship_even_share_level").Item;
+            var allOverEvenShareLevel = !fellows.Values.Any(f => (f.Level ?? 1) < allEvenShareLevel || (f.Level ?? 1) > 275);
 
-            if (allOver50)
+            if (allOverEvenShareLevel)
             {
                 ShareXP = DesiredShareXP;
                 EvenShare = true;
@@ -570,7 +577,10 @@ namespace ACE.Server.Entity
             else
             {
                 // pre-filter: evenly divide between luminance-eligible fellows
-                var shareableMembers = GetFellowshipMembers().Values.Where(f => f.MaximumLuminance != null).ToList();
+                // updated: retail supposedly did not do this
+                //var shareableMembers = GetFellowshipMembers().Values.Where(f => f.MaximumLuminance != null).ToList();
+
+                var shareableMembers = GetFellowshipMembers().Values.ToList();
 
                 if (shareableMembers.Count == 0)
                     return;
@@ -582,6 +592,8 @@ namespace ACE.Server.Entity
 
                 foreach (var member in inRange)
                 {
+                    if (member.MaximumLuminance == null) continue;
+
                     var fellowXpType = player == member ? xpType : XpType.Fellowship;
 
                     member.GrantLuminance(perAmount, fellowXpType, shareType);
@@ -618,7 +630,7 @@ namespace ACE.Server.Entity
             return 1.0;
         }
 
-        public static readonly int MaxDistance = 600;
+        public const int MaxDistance = 600;
 
         /// <summary>
         /// Returns the amount to scale the XP for a fellow
@@ -768,20 +780,18 @@ namespace ACE.Server.Entity
 
     public static class FellowshipExtensions
     {
-        public static ushort NumBuckets = 32;
+        private static readonly HashComparer hashComparer = new HashComparer(32);
 
-        public static HashComparer HashComparer = new HashComparer(NumBuckets);
-
-        public static void Write(this BinaryWriter writer, Dictionary<uint, int> departedMembersHash)
+        public static void Write(this BinaryWriter writer, Dictionary<uint, int> departedFellows)
         {
-            writer.Write((ushort)departedMembersHash.Count);
-            writer.Write(NumBuckets);
+            PackableHashTable.WriteHeader(writer, departedFellows.Count, hashComparer.NumBuckets);
 
-            var departedMembers = new SortedDictionary<uint, int>(departedMembersHash, HashComparer);
-            foreach (var member in departedMembers)
+            var sorted = new SortedDictionary<uint, int>(departedFellows, hashComparer);
+
+            foreach (var departed in sorted)
             {
-                writer.Write(member.Key);
-                writer.Write(member.Value);
+                writer.Write(departed.Key);
+                writer.Write(departed.Value);
             }
         }
     }

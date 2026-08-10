@@ -30,7 +30,7 @@ namespace ACE.Database
                 {
                     if (((RelationalDatabaseCreator)context.Database.GetService<IDatabaseCreator>()).Exists())
                     {
-                        log.Debug($"[DATABASE] Successfully connected to {config.Database} database on {config.Host}:{config.Port}.");
+                        log.InfoFormat("[DATABASE] Successfully connected to {0} database on {1}:{2}.", config.Database, config.Host, config.Port);
                         return true;
                     }
                 }
@@ -112,6 +112,62 @@ namespace ACE.Database
             weenie.WeeniePropertiesTextureMap = context.WeeniePropertiesTextureMap.Where(r => r.ObjectId == weenie.ClassId).ToList();
 
             return weenie;
+        }
+
+        /// <summary>
+        /// This will populate all sub collections except the following: LandblockInstances, PointsOfInterest
+        /// </summary>
+        public virtual List<Weenie> GetAllWeenies()
+        {
+            using (var context = new WorldDbContext())
+            {
+                context.Weenie.Load();
+
+                // Base properties for every weenie (ACBaseQualities)
+                context.WeeniePropertiesBool.Load();
+                context.WeeniePropertiesDID.Load();
+                context.WeeniePropertiesFloat.Load();
+                context.WeeniePropertiesIID.Load();
+                context.WeeniePropertiesInt.Load();
+                context.WeeniePropertiesInt64.Load();
+                context.WeeniePropertiesPosition.Load();
+                context.WeeniePropertiesString.Load();
+
+                context.WeeniePropertiesAnimPart.Load();
+
+                //if (isCreature)
+                {
+                    context.WeeniePropertiesAttribute.Load();
+                    context.WeeniePropertiesAttribute2nd.Load();
+
+                    context.WeeniePropertiesBodyPart.Load();
+                }
+
+                //if (weenieType == WeenieType.Book)
+                {
+                    context.WeeniePropertiesBook.Load();
+                    context.WeeniePropertiesBookPageData.Load();
+                }
+
+                context.WeeniePropertiesCreateList.Load();
+                context.WeeniePropertiesEmote.Load();
+                context.WeeniePropertiesEmoteAction.Load();
+                context.WeeniePropertiesEventFilter.Load();
+
+                context.WeeniePropertiesGenerator.Load();
+                context.WeeniePropertiesPalette.Load();
+
+                //if (isCreature)
+                {
+                    context.WeeniePropertiesSkill.Load();
+                }
+
+                context.WeeniePropertiesSpellBook.Load();
+
+                context.WeeniePropertiesTextureMap.Load();
+
+                return context.Weenie.ToList();
+            }
         }
 
         /// <summary>
@@ -235,6 +291,33 @@ namespace ACE.Database
             return result;
         }
 
+        public virtual List<CookBook> GetAllCookbooks()
+        {
+            using (var context = new WorldDbContext())
+            {
+                context.CookBook.Load();
+
+                context.Recipe.Load();
+
+                context.RecipeMod.Load();
+                context.RecipeModsBool.Load();
+                context.RecipeModsDID.Load();
+                context.RecipeModsFloat.Load();
+                context.RecipeModsIID.Load();
+                context.RecipeModsInt.Load();
+                context.RecipeModsString.Load();
+
+                context.RecipeRequirementsBool.Load();
+                context.RecipeRequirementsDID.Load();
+                context.RecipeRequirementsFloat.Load();
+                context.RecipeRequirementsIID.Load();
+                context.RecipeRequirementsInt.Load();
+                context.RecipeRequirementsString.Load();
+
+                return context.CookBook.ToList();
+            }
+        }
+
         public CookBook GetCookbook(uint sourceWeenieClassId, uint targetWeenieClassId)
         {
             using (var context = new WorldDbContext())
@@ -264,6 +347,46 @@ namespace ACE.Database
             }
 
             return results;
+        }
+
+        // =====================================
+        // Recipe
+        // =====================================
+
+        public Recipe GetRecipe(uint recipeId)
+        {
+            using (var context = new WorldDbContext())
+            {
+                context.ChangeTracker.QueryTrackingBehavior = QueryTrackingBehavior.NoTracking;
+
+                return GetRecipe(context, recipeId);
+            }
+        }
+
+        public virtual Recipe GetRecipe(WorldDbContext context, uint recipeId)
+        {
+            var result = context.Recipe
+                .Include(r => r.RecipeMod)
+                    .ThenInclude(r => r.RecipeModsBool)
+                .Include(r => r.RecipeMod)
+                    .ThenInclude(r => r.RecipeModsDID)
+                .Include(r => r.RecipeMod)
+                    .ThenInclude(r => r.RecipeModsFloat)
+                .Include(r => r.RecipeMod)
+                    .ThenInclude(r => r.RecipeModsIID)
+                .Include(r => r.RecipeMod)
+                    .ThenInclude(r => r.RecipeModsInt)
+                .Include(r => r.RecipeMod)
+                    .ThenInclude(r => r.RecipeModsString)
+                .Include(r => r.RecipeRequirementsBool)
+                .Include(r => r.RecipeRequirementsDID)
+                .Include(r => r.RecipeRequirementsFloat)
+                .Include(r => r.RecipeRequirementsIID)
+                .Include(r => r.RecipeRequirementsInt)
+                .Include(r => r.RecipeRequirementsString)
+                .FirstOrDefault(r => r.Id == recipeId);
+
+            return result;
         }
 
 
@@ -352,47 +475,6 @@ namespace ACE.Database
         // =====================================
         // Quest
         // =====================================
-
-
-        // =====================================
-        // Recipe
-        // =====================================
-
-        public Recipe GetRecipe(WorldDbContext context, uint recipeId)
-        {
-            var result = context.Recipe
-                .Include(r => r.RecipeMod)
-                    .ThenInclude(r => r.RecipeModsBool)
-                .Include(r => r.RecipeMod)
-                    .ThenInclude(r => r.RecipeModsDID)
-                .Include(r => r.RecipeMod)
-                    .ThenInclude(r => r.RecipeModsFloat)
-                .Include(r => r.RecipeMod)
-                    .ThenInclude(r => r.RecipeModsIID)
-                .Include(r => r.RecipeMod)
-                    .ThenInclude(r => r.RecipeModsInt)
-                .Include(r => r.RecipeMod)
-                    .ThenInclude(r => r.RecipeModsString)
-                .Include(r => r.RecipeRequirementsBool)
-                .Include(r => r.RecipeRequirementsDID)
-                .Include(r => r.RecipeRequirementsFloat)
-                .Include(r => r.RecipeRequirementsIID)
-                .Include(r => r.RecipeRequirementsInt)
-                .Include(r => r.RecipeRequirementsString)
-                .FirstOrDefault(r => r.Id == recipeId);
-
-            return result;
-        }
-
-        public Recipe GetRecipe(uint recipeId)
-        {
-            using (var context = new WorldDbContext())
-            {
-                context.ChangeTracker.QueryTrackingBehavior = QueryTrackingBehavior.NoTracking;
-
-                return GetRecipe(context, recipeId);
-            }
-        }
 
 
         // =====================================

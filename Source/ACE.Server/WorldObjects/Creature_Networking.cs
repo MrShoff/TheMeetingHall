@@ -29,6 +29,7 @@ namespace ACE.Server.WorldObjects
             GameMessageSystemChat sysMessage = new GameMessageSystemChat(message, messageType);
 
             PlayerManager.BroadcastToAll(sysMessage);
+            PlayerManager.LogBroadcastChat(Channel.AllBroadcast, this, message);
         }
 
         public override ACE.Entity.ObjDesc CalculateObjDesc()
@@ -107,8 +108,8 @@ namespace ACE.Server.WorldObjects
                     break;
             }
 
-            // get all the Armor Items so we can calculate their priority
-            var armorItems = EquippedObjects.Values.Where(x => (x.ItemType == ItemType.Armor)).ToList();
+            // get all the Armor Items, and any Clothing items that might be equipped (robes, slippers, gloves, kasa, etc) so we can calculate their priority
+            var armorItems = EquippedObjects.Values.Where(x => (x.ItemType == ItemType.Armor || (x.CurrentWieldedLocation & (EquipMask.Armor | EquipMask.Extremity)) != 0)).ToList();
             foreach (var w in armorItems)
                 w.setVisualClothingPriority();
 
@@ -120,7 +121,7 @@ namespace ACE.Server.WorldObjects
             var sortedArmorItems = bottom.Concat(noLayer).Concat(top).ToList();
 
             var clothesAndCloaks = EquippedObjects.Values
-                                .Where(x => (x.ItemType == ItemType.Clothing)) // FootWear & HandWear is included in the ArmorItems above
+                                .Where(x => (x.ItemType == ItemType.Clothing) && (x.CurrentWieldedLocation & (EquipMask.Armor | EquipMask.Extremity)) == 0) // Extremity, Head/Foot/Hands, is included in the ArmorItems above
                                 .OrderBy(x => x.ClothingPriority);
 
             var eo = clothesAndCloaks.Concat(sortedArmorItems).ToList();
@@ -163,11 +164,16 @@ namespace ACE.Server.WorldObjects
                         continue;
                     }
 
-                    if (item.ClothingBaseEffects.ContainsKey(thisSetupId))
+                    if (item.ClothingBaseEffects.ContainsKey(SetupTableId) || item.ClothingBaseEffects.ContainsKey(thisSetupId))
                     // Check if the player model has data. Gear Knights, this is usually you.
                     {
-                        // Add the model and texture(s)
-                        ClothingBaseEffect clothingBaseEffect = item.ClothingBaseEffects[thisSetupId];
+                        // Add the model and texture(s). Check if the original model has AnimParts defined, otherwise use the fallback if different
+                        ClothingBaseEffect clothingBaseEffect;
+                        if (item.ClothingBaseEffects.ContainsKey(SetupTableId))
+                            clothingBaseEffect = item.ClothingBaseEffects[SetupTableId];
+                        else
+                            clothingBaseEffect = item.ClothingBaseEffects[thisSetupId];
+
                         foreach (CloObjectEffect t in clothingBaseEffect.CloObjectEffects)
                         {
                             byte partNum = (byte)t.Index;

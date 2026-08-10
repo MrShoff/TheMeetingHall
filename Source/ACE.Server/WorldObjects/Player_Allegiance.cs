@@ -87,11 +87,14 @@ namespace ACE.Server.WorldObjects
 
             if (!confirmed)
             {
-                patron.ConfirmationManager.EnqueueSend(new Confirmation_SwearAllegiance(patron.Guid, Guid), Name);
+                if (!patron.ConfirmationManager.EnqueueSend(new Confirmation_SwearAllegiance(patron.Guid, Guid), Name))
+                {
+                    Session.Network.EnqueueSend(new GameMessageSystemChat($"{patron.Name} is busy.", ChatMessageType.Broadcast));
+                }
                 return;
             }
 
-            log.Debug($"[ALLEGIANCE] {Name} swearing allegiance to {patron.Name}");
+            log.InfoFormat("[ALLEGIANCE] {0} ({1}) swearing allegiance to {2} ({3})", Name, Level, patron.Name, patron.Level);
 
             PatronId = targetGuid;
 
@@ -172,7 +175,7 @@ namespace ACE.Server.WorldObjects
 
             if (target == null) return;
 
-            log.Debug($"[ALLEGIANCE] {Name} breaking allegiance to {target.Name}");
+            log.InfoFormat("[ALLEGIANCE] {0} breaking allegiance to {1}", Name, target.Name);
 
             // target can be either patron or vassal
             var isPatron = PatronId == target.Guid.Full;
@@ -294,6 +297,21 @@ namespace ACE.Server.WorldObjects
         {
             // the client doesn't seem to display most of these werrors,
             // so we also send similar messages as text
+
+            // An Olthoi player cannot swear allegiance to another player
+            if (IsOlthoiPlayer)
+            {
+                //Session.Network.EnqueueSend(new GameMessageSystemChat($"The Olthoi only have an allegiance to the Olthoi Queen!", ChatMessageType.Broadcast));
+                Session.Network.EnqueueSend(new GameEventWeenieError(Session, WeenieError.OlthoiCannotJoinAllegiance));
+                return false;
+            }
+
+            if (target.IsOlthoiPlayer)
+            {
+                Session.Network.EnqueueSend(new GameMessageSystemChat($"The Olthoi have loyalty only to their Olthoi Queen!", ChatMessageType.Broadcast));
+                SendWeenieError(WeenieError.None);
+                return false;
+            }
 
             // check ignore allegiance requests
             if (target.GetCharacterOption(CharacterOption.IgnoreAllegianceRequests))
@@ -1382,7 +1400,7 @@ namespace ACE.Server.WorldObjects
 
         public void HandleActionBreakAllegianceBoot(string playerName, bool accountBoot)
         {
-            log.Debug($"[ALLEGIANCE] {Name}.HandleActionBreakAllegianceBoot({playerName}, {accountBoot})");
+            log.InfoFormat("[ALLEGIANCE] {0}.HandleActionBreakAllegianceBoot({1}, {2})", Name, playerName, accountBoot);
 
             // TODO: handle account boot
 
